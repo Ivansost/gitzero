@@ -412,6 +412,35 @@ def test_static_analysis_dampens_config_heavy_scaffolds(tmp_path: Path) -> None:
     assert "dampener.static.config_scaffold_heavy" in finding_ids
 
 
+def test_static_analysis_flags_monolithic_ui_files(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.jsx").write_text("import App from './App.jsx'\n")
+    repeated_blocks = "\n".join(
+        f"""
+function Section{index}() {{
+  return <section><h2>Project {index}</h2><p>Generated-looking card content.</p></section>
+}}
+"""
+        for index in range(90)
+    )
+    (tmp_path / "src" / "App.jsx").write_text(
+        f"""
+import React from 'react'
+
+{repeated_blocks}
+
+export default function App() {{
+  return <main><Section0 /></main>
+}}
+"""
+    )
+
+    result = analyze_static_code(tmp_path)
+    finding_ids = {finding.id for finding in result.findings}
+
+    assert "static.monolithic_ui_file" in finding_ids
+
+
 def test_static_analysis_dampens_angular_nest_and_expo_templates(tmp_path: Path) -> None:
     cases = {
         "angular": (

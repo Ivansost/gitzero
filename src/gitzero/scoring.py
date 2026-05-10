@@ -58,6 +58,12 @@ def build_score_summary(
             overall = min(overall, 59.0)
         elif organic_strength >= 2:
             overall = min(overall, 64.0)
+        if (
+            organic_strength < 2
+            and not _has_starter_template(dampening_findings)
+            and _has_small_ui_dump_shape(tuple(all_findings))
+        ):
+            overall = max(overall, 70.0)
     if hard_evidence_present:
         overall = max(overall, 92.0)
     risk_band, risk_color = risk_for_score(overall)
@@ -121,6 +127,16 @@ def _organic_history_strength(findings: tuple[SignalFinding, ...]) -> int:
         "dampener.git.organic_churn",
     }
     return len({finding.id for finding in findings if finding.id in organic_ids})
+
+
+def _has_small_ui_dump_shape(findings: tuple[SignalFinding, ...]) -> bool:
+    has_large_commit = any(
+        finding.id == "git.large_commits" and finding.score >= 90 for finding in findings
+    )
+    has_monolithic_ui = any(
+        finding.id == "static.monolithic_ui_file" and finding.score >= 75 for finding in findings
+    )
+    return has_large_commit and has_monolithic_ui
 
 
 def _risk_findings(findings: tuple[SignalFinding, ...]) -> tuple[SignalFinding, ...]:

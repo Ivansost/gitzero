@@ -538,6 +538,17 @@ def _analyze_file(path: str, language: str, text: str) -> FileFinding | None:
             for result, weight in zip(component_results, component_weights, strict=True)
         ),
     )
+    boilerplate_score = next(
+        (
+            result.score
+            for result in component_results
+            if result.id == "static.repeated_boilerplate"
+        ),
+        0.0,
+    )
+    if boilerplate_score >= 90:
+        score = max(score, 65.0 if len(lines) >= 500 else 45.0)
+
     verbose_findings = tuple(result for result in component_results if result.score > 0)
     highlights = tuple(result.detail for result in verbose_findings[:6]) + features.extra_highlights
 
@@ -1657,7 +1668,7 @@ def _scaffold_context_findings(
                 id="dampener.static.config_scaffold_heavy",
                 title="Scan is dominated by config scaffolding",
                 category="dampener",
-                score=min(70.0, 35 + config_ratio * 45 + config_count * 2),
+                score=min(35.0, 14 + config_ratio * 24 + config_count),
                 weight=0.5,
                 detail=(
                     f"{config_count} of {considered} inspected source-like files were framework "
@@ -1723,6 +1734,42 @@ def _resource_framework_findings(repo_path: Path) -> list[SignalFinding]:
     ]
 
 
+def _monolithic_ui_file_finding(files: list[FileFinding]) -> SignalFinding | None:
+    if len(files) > 4:
+        return None
+    ui_files = [
+        file
+        for file in files
+        if Path(file.path).suffix.lower() in {".jsx", ".tsx"}
+        and Path(file.path).name.lower() in {"app.jsx", "app.tsx", "index.jsx", "index.tsx"}
+    ]
+    if not ui_files:
+        return None
+
+    total_lines = sum(file.lines for file in files)
+    if total_lines <= 0:
+        return None
+
+    largest = max(ui_files, key=lambda file: file.lines)
+    line_ratio = largest.lines / total_lines
+    if largest.lines < 450 or line_ratio < 0.65:
+        return None
+
+    return SignalFinding(
+        id="static.monolithic_ui_file",
+        title="Most UI code lives in one large file",
+        category="static",
+        score=min(85.0, 42 + largest.lines / 18 + line_ratio * 18),
+        weight=0.85,
+        detail=(
+            f"{largest.path} contains {largest.lines} of {total_lines} scanned lines "
+            f"({line_ratio:.0%}). Small UI repos with one very large component are often "
+            "quickly generated or heavily assistant-shaped."
+        ),
+        path=largest.path,
+    )
+
+
 def _aggregate_findings(
     files: list[FileFinding],
     repo_path: Path,
@@ -1773,7 +1820,7 @@ def _aggregate_findings(
     repeated_structure_files = [file for file in files if file.structure_repetition_score >= 0.4]
     test_files = [file for file in files if _is_test_path_or_text(file.path, "")]
 
-    if len(medium_files) >= 3 or (medium_files and average_score >= 35):
+    if high_files or len(medium_files) >= 3 or (medium_files and average_score >= 35):
         score = min(100.0, average_score + len(high_files) * 8 + len(medium_files) * 2)
         findings.append(
             SignalFinding(
@@ -1788,6 +1835,10 @@ def _aggregate_findings(
                 ),
             )
         )
+
+    monolithic_ui_finding = _monolithic_ui_file_finding(files)
+    if monolithic_ui_finding is not None:
+        findings.append(monolithic_ui_finding)
 
     if high_density_files and average_comment_density >= 0.12:
         findings.append(

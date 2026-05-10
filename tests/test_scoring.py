@@ -229,3 +229,45 @@ def test_organic_history_dampeners_cap_large_initial_import_without_hard_evidenc
 
     assert summary.overall_score <= 59
     assert summary.risk_band == "Medium"
+
+
+def test_small_monolithic_ui_dump_with_large_commit_floors_high() -> None:
+    git_findings = (
+        SignalFinding(
+            id="git.large_commits",
+            title="Large commits",
+            category="git",
+            score=100,
+            weight=1.4,
+            detail="large",
+        ),
+    )
+    static = StaticAnalysisResult(
+        files=(),
+        findings=(
+            SignalFinding(
+                id="static.monolithic_ui_file",
+                title="Monolithic UI file",
+                category="static",
+                score=85,
+                weight=0.85,
+                detail="one giant App.jsx",
+            ),
+            SignalFinding(
+                id="dampener.static.config_scaffold_heavy",
+                title="Config scaffold",
+                category="dampener",
+                score=34,
+                weight=0.5,
+                detail="config files",
+            ),
+        ),
+        files_scanned=2,
+        files_skipped=4,
+        total_lines=850,
+    )
+
+    summary = build_score_summary(git_findings, static, git_history_enabled=True)
+
+    assert summary.overall_score >= 70.0
+    assert summary.risk_band == "High"
