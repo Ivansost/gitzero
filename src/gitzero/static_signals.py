@@ -1,0 +1,2128 @@
+from __future__ import annotations
+
+import ast
+import fnmatch
+import io
+import json
+import os
+import re
+import statistics
+import tokenize
+import tomllib
+import warnings
+from collections import Counter
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .models import FileFinding, SignalFinding, StaticAnalysisResult
+
+SUPPORTED_EXTENSIONS = {
+    ".py": "Python",
+    ".js": "JavaScript",
+    ".jsx": "JavaScript",
+    ".ts": "TypeScript",
+    ".tsx": "TypeScript",
+}
+
+DEFAULT_EXCLUDES = {
+    ".cache",
+    ".git",
+    ".hg",
+    ".idea",
+    ".mypy_cache",
+    ".next",
+    ".nuxt",
+    ".parcel-cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".turbo",
+    ".venv",
+    ".vscode",
+    "__pycache__",
+    "build",
+    "coverage",
+    "dist",
+    "env",
+    "htmlcov",
+    "migrations",
+    "node_modules",
+    "out",
+    "site-packages",
+    "target",
+    "vendor",
+    "venv",
+}
+
+AI_CONFIG_NAMES = {
+    ".aider",
+    ".aider.conf.yml",
+    ".claude",
+    ".claude_instructions",
+    ".clinerules",
+    ".codex",
+    ".cursorignore",
+    ".cursorrules",
+    ".gemini",
+    ".roomodes",
+    ".windsurfrules",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CODEX.md",
+    "GEMINI.md",
+}
+AI_CONFIG_PATHS = {
+    ".continue",
+    ".github/workflows/claude-code-review.yml",
+    ".github/workflows/claude.yml",
+    ".github/copilot-instructions.md",
+}
+AI_CONFIG_NAMES_NORMALIZED = {name.lower() for name in AI_CONFIG_NAMES}
+AI_CONFIG_PATHS_NORMALIZED = {path.lower() for path in AI_CONFIG_PATHS}
+AI_CONFIG_PHRASE = "vibe " + "cod"
+
+GENERATED_FILE_PATTERNS = (
+    "*.bundle.*",
+    "*.generated.*",
+    "*.gen.*",
+    "*.lock",
+    "*.min.*",
+    "*.pb.*",
+    "*.snap",
+    "*_pb2.py",
+    "*_pb2_grpc.py",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "Pipfile.lock",
+    "yarn.lock",
+)
+
+NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+JS_DECL_RE = re.compile(
+    r"\b(?:function|class|interface|type)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
+    r"|\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
+    r"|([A-Za-z_$][A-Za-z0-9_$]*)\s*[:=]\s*(?:async\s*)?\([^)]*\)\s*=>"
+)
+COMMENT_PHRASE_RE = re.compile(r"[^a-z0-9 ]+")
+DEBUG_ARTIFACT_RE = re.compile(
+    r"(?<![\w.])print\s*\(|\bconsole\.(?:log|debug|table|trace)\s*\(|\bdebugger\s*;"
+    r"|\bpdb\.set_trace\s*\(|\bbreakpoint\s*\(",
+    re.I,
+)
+TODO_RE = re.compile(
+    r"(?:#|//|/\*+|\*)\s*(?:TODO|FIXME|XXX)\s*:?\s*(?P<body>.*)",
+    re.I,
+)
+GENERIC_TODO_RE = re.compile(
+    r"\b("
+    r"add (?:error handling|tests?|logging|validation)|"
+    r"clean ?up|fix (?:later|this|me)|handle edge cases?|"
+    r"implement (?:this|later|me|properly)|"
+    r"optimi[sz]e|refactor|remove this|update this"
+    r")\b",
+    re.I,
+)
+TS_TYPE_DECL_RE = re.compile(
+    r"\b(?:interface|type)\s+[A-Za-z_$][\w$]*"
+    r"|\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*:\s*[^=;\n]+"
+)
+TEST_ASSERTION_RE = re.compile(
+    r"\bassert\b|expect\s*\(|assert\.(?:ok|equal|strictEqual|deepEqual)|"
+    r"self\.assert\w+\(",
+    re.I,
+)
+SHALLOW_ASSERTION_RE = re.compile(
+    r"is not None|isinstance\s*\(|\.toBeDefined\s*\(|\.toBeTruthy\s*\(|"
+    r"\.toBeFalsy\s*\(|\.toBeInstanceOf\s*\(|assert\.ok\s*\(|"
+    r"self\.assert(?:IsNotNone|True|False)\s*\(",
+    re.I,
+)
+README_FEATURE_TERMS = {
+    "admin",
+    "analytics",
+    "api",
+    "authentication",
+    "authorization",
+    "billing",
+    "dashboard",
+    "database",
+    "deployment",
+    "export",
+    "import",
+    "notifications",
+    "payment",
+    "real-time",
+    "search",
+    "settings",
+    "websocket",
+}
+README_GENERIC_CLAIMS = (
+    "comprehensive",
+    "enterprise-grade",
+    "fully featured",
+    "modern",
+    "powerful",
+    "production-ready",
+    "robust",
+    "scalable",
+)
+STARTER_TEMPLATE_FILES = {
+    ".eslintrc.json": "JavaScript starter config",
+    "angular.json": "Angular starter",
+    "app.json": "Expo starter",
+    "components.json": "shadcn/ui starter",
+    "manage.py": "Django starter",
+    "nest-cli.json": "NestJS starter",
+    "vite.config.js": "Vite starter",
+    "vite.config.ts": "Vite starter",
+}
+STARTER_TEMPLATE_DEPENDENCIES = {
+    "@angular/cli": "Angular starter",
+    "@angular/core": "Angular starter",
+    "@nestjs/cli": "NestJS starter",
+    "@nestjs/core": "NestJS starter",
+    "@vitejs/plugin-react": "Vite React starter",
+    "create-react-app": "Create React App starter",
+    "django": "Django starter",
+    "expo": "Expo starter",
+    "expo-router": "Expo starter",
+    "fastapi": "FastAPI starter",
+    "next": "Next.js starter",
+    "react-native": "React Native starter",
+    "react-scripts": "Create React App starter",
+}
+EDUCATIONAL_REPO_NAME_TERMS = {
+    "book": "book/example repo",
+    "course": "course repo",
+    "example": "example repo",
+    "examples": "example repo",
+    "learn": "learning repo",
+    "learning-zone": "learning-zone repo",
+    "packtpublishing": "Packt Publishing repo",
+    "sample": "sample repo",
+    "spring-boot-basics": "tutorial basics repo",
+    "tutorial": "tutorial repo",
+    "workshop": "workshop repo",
+}
+EDUCATIONAL_README_PHRASES = {
+    "chapter": "chapter references",
+    "companion repository": "companion repository",
+    "course": "course wording",
+    "example code": "example code",
+    "packt": "Packt wording",
+    "sample code": "sample code",
+    "source code for": "source-code wording",
+    "tutorial": "tutorial wording",
+    "workshop": "workshop wording",
+}
+EDUCATIONAL_STRONG_README_LABELS = {
+    "companion repository",
+    "example code",
+    "sample code",
+    "source-code wording",
+}
+
+
+@dataclass(frozen=True)
+class CodeFeatures:
+    identifiers: list[str]
+    function_lengths: list[int]
+    docstring_count: int
+    function_count: int
+    annotated_slots: int
+    annotatable_slots: int
+    complexities: list[int]
+    structure_profiles: list[str]
+    import_lines: list[str]
+    error_shapes: list[str]
+    test_like: bool = False
+    extra_highlights: tuple[str, ...] = field(default_factory=tuple)
+
+
+def analyze_static_code(
+    repo_path: Path,
+    *,
+    excludes: tuple[str, ...] = (),
+    max_file_size_kb: int = 400,
+    max_files: int | None = None,
+    source_candidates: Sequence[tuple[Path, Path]] | None = None,
+    progress_callback: Callable[[Path], None] | None = None,
+) -> StaticAnalysisResult:
+    """Analyze supported source files for static and style signals."""
+
+    files: list[FileFinding] = []
+    skipped_by_reason: Counter[str] = Counter()
+    max_bytes = max_file_size_kb * 1024
+    candidates = source_candidates
+    if candidates is None:
+        candidates = collect_static_candidates(repo_path, excludes=excludes)
+
+    for path, relative in candidates:
+        if progress_callback is not None:
+            progress_callback(relative)
+        language = SUPPORTED_EXTENSIONS.get(path.suffix.lower())
+        if language is None:
+            continue
+        if max_files is not None and len(files) >= max_files:
+            skipped_by_reason["max_files"] += 1
+            continue
+        if _looks_generated(relative, path):
+            skipped_by_reason["generated"] += 1
+            continue
+        try:
+            file_size = path.stat().st_size
+        except OSError:
+            skipped_by_reason["unreadable"] += 1
+            continue
+        if file_size > max_bytes:
+            skipped_by_reason["large"] += 1
+            continue
+
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            skipped_by_reason["unreadable"] += 1
+            continue
+
+        if _looks_minified(text):
+            skipped_by_reason["minified"] += 1
+            continue
+
+        finding = _analyze_file(relative.as_posix(), language, text)
+        if finding is not None:
+            files.append(finding)
+
+    aggregate_findings = _aggregate_findings(files, repo_path)
+    return StaticAnalysisResult(
+        files=tuple(files),
+        findings=tuple(aggregate_findings),
+        files_scanned=len(files),
+        files_skipped=sum(skipped_by_reason.values()),
+        total_lines=sum(file.lines for file in files),
+        files_indexed=len(candidates),
+        skipped_by_reason=dict(skipped_by_reason),
+    )
+
+
+def collect_static_candidates(
+    repo_path: Path,
+    *,
+    excludes: tuple[str, ...] = (),
+) -> tuple[tuple[Path, Path], ...]:
+    return tuple(_iter_source_paths(repo_path, excludes))
+
+
+def _iter_source_paths(repo_path: Path, excludes: tuple[str, ...]):
+    for root, dirnames, filenames in os.walk(repo_path):
+        root_path = Path(root)
+        root_relative = root_path.relative_to(repo_path)
+
+        kept_dirnames = []
+        for dirname in dirnames:
+            relative_dir = _relative_child(root_relative, dirname)
+            if _is_excluded(relative_dir, excludes):
+                continue
+            kept_dirnames.append(dirname)
+        dirnames[:] = kept_dirnames
+
+        for filename in filenames:
+            path = root_path / filename
+            relative = _relative_child(root_relative, filename)
+            if _is_excluded(relative, excludes):
+                continue
+            yield path, relative
+
+
+def _relative_child(root_relative: Path, child: str) -> Path:
+    if root_relative == Path("."):
+        return Path(child)
+    return root_relative / child
+
+
+def _is_excluded(relative: Path, excludes: tuple[str, ...]) -> bool:
+    parts = set(relative.parts)
+    if parts & DEFAULT_EXCLUDES:
+        return True
+    path_text = relative.as_posix()
+    return any(fnmatch.fnmatch(path_text, pattern) or pattern in parts for pattern in excludes)
+
+
+def _looks_generated(relative: Path, path: Path) -> bool:
+    lower_name = path.name.lower()
+    lower_path = relative.as_posix().lower()
+    if any(fnmatch.fnmatch(path.name, pattern) for pattern in GENERATED_FILE_PATTERNS):
+        return True
+    generated_markers = (
+        "/generated/",
+        "/migrations/",
+        "/vendor/",
+        ".min.",
+        "bundle.",
+        "generated",
+        "snapshot",
+    )
+    return any(marker in lower_name or marker in lower_path for marker in generated_markers)
+
+
+def _looks_minified(text: str) -> bool:
+    lines = text.splitlines()
+    if not lines:
+        return False
+    longest = max(len(line) for line in lines)
+    average = sum(len(line) for line in lines) / len(lines)
+    return longest > 1500 or (len(lines) <= 5 and average > 500)
+
+
+def _analyze_file(path: str, language: str, text: str) -> FileFinding | None:
+    lines = text.splitlines()
+    if not lines:
+        return None
+
+    features = _python_features(text, path) if language == "Python" else _js_ts_features(text, path)
+    comment_lines = _count_comment_lines(lines, language)
+    non_empty_lines = sum(1 for line in lines if line.strip())
+    comment_density = comment_lines / max(non_empty_lines, 1)
+    docstring_rate = (
+        features.docstring_count / features.function_count if features.function_count else 0.0
+    )
+    type_density = (
+        features.annotated_slots / features.annotatable_slots if features.annotatable_slots else 0.0
+    )
+    complexity_avg = statistics.mean(features.complexities) if features.complexities else None
+    complexity_stdev = (
+        statistics.pstdev(features.complexities) if len(features.complexities) >= 2 else None
+    )
+    debug_artifacts = _count_debug_artifacts(text, language)
+    commented_code_blocks = _count_commented_out_code_blocks(text, language)
+    todos = _extract_todos(text, language)
+    generic_todos = [todo for todo in todos if _is_generic_todo(todo)]
+    test_assertions, shallow_test_assertions = _test_assertion_counts(text)
+
+    component_results = [
+        _score_naming_uniformity(features.identifiers, path),
+        _score_descriptive_names(features.identifiers, path),
+        _score_comment_density(comment_density, docstring_rate, features.function_count, path),
+        _score_boilerplate(text, language, path),
+        _score_function_uniformity(features.function_lengths, path),
+        _score_docstring_coverage(docstring_rate, features.function_count, path),
+        _score_type_annotation_density(type_density, features.annotatable_slots, path),
+        _score_complexity_uniformity(features.complexities, path),
+        _score_structural_repetition(features.structure_profiles, path),
+        _score_identifier_templates(features.identifiers, path),
+        _score_error_handling_uniformity(features.error_shapes, path),
+        _score_import_uniformity(features.import_lines, path),
+        _score_shallow_test_assertions(
+            test_assertions,
+            shallow_test_assertions,
+            path,
+            features.test_like,
+        ),
+    ]
+    component_weights = [
+        0.18,
+        0.12,
+        0.11,
+        0.11,
+        0.09,
+        0.12,
+        0.11,
+        0.08,
+        0.16,
+        0.08,
+        0.06,
+        0.04,
+        0.07,
+    ]
+    score = min(
+        100.0,
+        sum(
+            result.score * weight
+            for result, weight in zip(component_results, component_weights, strict=True)
+        ),
+    )
+    verbose_findings = tuple(result for result in component_results if result.score > 0)
+    highlights = tuple(result.detail for result in verbose_findings[:6]) + features.extra_highlights
+
+    return FileFinding(
+        path=path,
+        language=language,
+        score=score,
+        lines=len(lines),
+        comment_density=comment_density,
+        identifier_count=len(features.identifiers),
+        docstring_rate=docstring_rate,
+        type_annotation_density=type_density,
+        complexity_average=complexity_avg,
+        complexity_stdev=complexity_stdev,
+        structure_repetition_score=_structural_repetition_ratio(features.structure_profiles),
+        debug_artifact_count=debug_artifacts,
+        commented_code_block_count=commented_code_blocks,
+        todo_count=len(todos),
+        generic_todo_count=len(generic_todos),
+        test_assertion_count=test_assertions,
+        shallow_test_assertion_count=shallow_test_assertions,
+        highlights=tuple(highlights),
+        verbose_findings=verbose_findings,
+    )
+
+
+def _python_features(text: str, path: str) -> CodeFeatures:
+    try:
+        tree = _parse_python_quietly(text)
+    except SyntaxError:
+        return CodeFeatures(
+            identifiers=_fallback_identifiers(text),
+            function_lengths=[],
+            docstring_count=0,
+            function_count=0,
+            annotated_slots=0,
+            annotatable_slots=0,
+            complexities=[],
+            structure_profiles=[],
+            import_lines=_extract_import_lines(text),
+            error_shapes=_extract_error_shapes(text),
+            test_like=_is_test_path_or_text(path, text),
+        )
+
+    identifiers: list[str] = []
+    function_lengths: list[int] = []
+    structure_profiles: list[str] = []
+    docstring_count = 0
+    function_count = 0
+    annotated_slots = 0
+    annotatable_slots = 0
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            identifiers.append(node.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            identifiers.append(node.name)
+            function_count += 1
+            if ast.get_docstring(node):
+                docstring_count += 1
+            if hasattr(node, "end_lineno") and node.end_lineno is not None:
+                function_lengths.append(max(1, node.end_lineno - node.lineno + 1))
+            args = [*node.args.args, *node.args.kwonlyargs]
+            if node.args.vararg is not None:
+                args.append(node.args.vararg)
+            if node.args.kwarg is not None:
+                args.append(node.args.kwarg)
+            annotatable_slots += len(args) + 1
+            annotated_slots += sum(arg.annotation is not None for arg in args)
+            annotated_slots += int(node.returns is not None)
+            identifiers.extend(arg.arg for arg in args)
+            structure_profiles.append(_python_structure_profile(node))
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            identifiers.append(node.id)
+        elif isinstance(node, ast.arg):
+            identifiers.append(node.arg)
+
+    complexities = _python_complexities(text)
+    return CodeFeatures(
+        identifiers=identifiers,
+        function_lengths=function_lengths,
+        docstring_count=docstring_count,
+        function_count=function_count,
+        annotated_slots=annotated_slots,
+        annotatable_slots=annotatable_slots,
+        complexities=complexities,
+        structure_profiles=structure_profiles,
+        import_lines=_extract_import_lines(text),
+        error_shapes=_extract_error_shapes(text),
+        test_like=_is_test_path_or_text(path, text),
+    )
+
+
+def _js_ts_features(text: str, path: str) -> CodeFeatures:
+    tree_sitter_features = _tree_sitter_js_ts_features(text, path)
+    if tree_sitter_features is not None:
+        return tree_sitter_features
+
+    identifiers: list[str] = []
+    for match in JS_DECL_RE.finditer(text):
+        identifiers.extend(group for group in match.groups() if group)
+
+    function_lengths = _estimate_js_function_lengths(text)
+    function_count = len(function_lengths)
+    docstring_count = len(re.findall(r"/\*\*[\s\S]*?\*/", text))
+    annotated_slots, annotatable_slots = _js_ts_annotation_counts(text)
+    complexities = _estimate_js_complexities(text)
+    return CodeFeatures(
+        identifiers=identifiers or _fallback_identifiers(text),
+        function_lengths=function_lengths,
+        docstring_count=docstring_count,
+        function_count=function_count,
+        annotated_slots=annotated_slots,
+        annotatable_slots=annotatable_slots,
+        complexities=complexities,
+        structure_profiles=_estimate_js_structure_profiles(text),
+        import_lines=_extract_import_lines(text),
+        error_shapes=_extract_error_shapes(text),
+        test_like=_is_test_path_or_text(path, text),
+    )
+
+
+def _tree_sitter_js_ts_features(text: str, path: str) -> CodeFeatures | None:
+    try:
+        from tree_sitter_language_pack import get_parser  # type: ignore
+    except Exception:
+        return None
+
+    extension = Path(path).suffix.lower()
+    language_name = "typescript" if extension in {".ts", ".tsx"} else "javascript"
+    try:
+        parser = get_parser(language_name)
+        tree = parser.parse(text.encode("utf-8"))
+    except Exception:
+        return None
+
+    identifiers: list[str] = []
+    function_lengths: list[int] = []
+    structure_profiles: list[str] = []
+    import_lines: list[str] = []
+    error_shapes: list[str] = []
+    annotated_slots = 0
+    annotatable_slots = 0
+    docstring_count = len(re.findall(r"/\*\*[\s\S]*?\*/", text))
+
+    def node_text(node) -> str:
+        return text[node.start_byte : node.end_byte]
+
+    def walk(node) -> None:
+        nonlocal annotated_slots, annotatable_slots
+        node_type = getattr(node, "type", "")
+        if node_type in {
+            "function_declaration",
+            "function",
+            "arrow_function",
+            "method_definition",
+            "generator_function_declaration",
+        }:
+            start_line = node.start_point[0] + 1
+            end_line = node.end_point[0] + 1
+            function_lengths.append(max(1, end_line - start_line + 1))
+            body = node_text(node)
+            arg_count = max(0, body.split(")", 1)[0].count(",") + int("(" in body))
+            branch_count = len(re.findall(r"\b(if|for|while|switch|catch|try)\b", body))
+            statement_count = len([part for part in re.split(r"[;\n]", body) if part.strip()])
+            structure_profiles.append(
+                f"args={arg_count}|len={statement_count}|branches={branch_count}"
+            )
+            annotatable_slots += arg_count + 1
+            annotated_slots += body.count(":")
+        elif node_type in {"identifier", "type_identifier", "property_identifier"}:
+            value = node_text(node).strip()
+            if value:
+                identifiers.append(value)
+        elif node_type in {"import_statement", "lexical_declaration"}:
+            line = node_text(node).strip().splitlines()[0] if node_text(node).strip() else ""
+            if line.startswith(("import ", "const ", "let ", "var ")):
+                import_lines.append(line)
+        elif node_type == "catch_clause":
+            body = node_text(node)
+            raises = len(re.findall(r"\bthrow\b", body))
+            logs = len(re.findall(r"console\.error|log(?:ger|ging)?", body, re.I))
+            returns = len(re.findall(r"\breturn\b", body))
+            error_shapes.append(f"try|raises={raises}|logs={logs}|returns={returns}")
+
+        for child in getattr(node, "children", ()):
+            walk(child)
+
+    walk(tree.root_node)
+    if not function_lengths and not identifiers:
+        return None
+
+    regex_annotated, regex_annotatable = _js_ts_annotation_counts(text)
+    annotated_slots = max(annotated_slots, regex_annotated)
+    annotatable_slots = max(annotatable_slots, regex_annotatable)
+    complexities = [
+        1 + int(re.search(r"branches=(\d+)", profile).group(1)) for profile in structure_profiles
+    ]
+    return CodeFeatures(
+        identifiers=identifiers or _fallback_identifiers(text),
+        function_lengths=function_lengths,
+        docstring_count=docstring_count,
+        function_count=len(function_lengths),
+        annotated_slots=annotated_slots,
+        annotatable_slots=annotatable_slots,
+        complexities=complexities,
+        structure_profiles=structure_profiles,
+        import_lines=import_lines or _extract_import_lines(text),
+        error_shapes=error_shapes or _extract_error_shapes(text),
+        test_like=_is_test_path_or_text(path, text),
+        extra_highlights=("parsed with tree-sitter",),
+    )
+
+
+def _python_complexities(text: str) -> list[int]:
+    try:
+        from radon.complexity import cc_visit
+    except Exception:
+        return []
+
+    try:
+        return [int(block.complexity) for block in cc_visit(text)]
+    except Exception:
+        return []
+
+
+def _python_structure_profile(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+    body = node.body[1:] if node.body and isinstance(node.body[0], ast.Expr) else node.body
+    statement_types = [type(statement).__name__ for statement in body]
+    branch_count = sum(
+        isinstance(child, (ast.If, ast.For, ast.While, ast.Try, ast.With))
+        for child in ast.walk(node)
+    )
+    body_shape = ",".join(statement_types[:8])
+    return f"args={len(node.args.args)}|len={len(body)}|branches={branch_count}|body={body_shape}"
+
+
+def _estimate_js_function_lengths(text: str) -> list[int]:
+    lines = text.splitlines()
+    function_starts = [
+        index
+        for index, line in enumerate(lines, start=1)
+        if re.search(r"\b(function|class)\b|=>\s*\{", line)
+    ]
+    lengths: list[int] = []
+    for start in function_starts:
+        brace_depth = 0
+        seen_open = False
+        for index in range(start - 1, len(lines)):
+            line = lines[index]
+            brace_depth += line.count("{")
+            if "{" in line:
+                seen_open = True
+            brace_depth -= line.count("}")
+            if seen_open and brace_depth <= 0:
+                lengths.append(index - start + 1)
+                break
+    return lengths
+
+
+def _estimate_js_complexities(text: str) -> list[int]:
+    profiles = _estimate_js_structure_profiles(text)
+    complexities: list[int] = []
+    for profile in profiles:
+        match = re.search(r"branches=(\d+)", profile)
+        complexities.append(1 + int(match.group(1) if match else 0))
+    return complexities
+
+
+def _estimate_js_structure_profiles(text: str) -> list[str]:
+    profiles: list[str] = []
+    for match in re.finditer(
+        r"(?:function\s+\w+|\w+\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)[^{]*\{", text
+    ):
+        start = match.end()
+        end = _matching_brace_end(text, start - 1)
+        if end is None:
+            continue
+        body = text[start:end]
+        args_match = re.search(r"\(([^)]*)\)", match.group(0))
+        arg_count = len(
+            [arg for arg in (args_match.group(1).split(",") if args_match else []) if arg.strip()]
+        )
+        branch_count = len(re.findall(r"\b(if|for|while|switch|catch|try)\b", body))
+        statement_count = len([part for part in re.split(r"[;\n]", body) if part.strip()])
+        profiles.append(f"args={arg_count}|len={statement_count}|branches={branch_count}")
+    return profiles
+
+
+def _matching_brace_end(text: str, open_index: int) -> int | None:
+    depth = 0
+    for index in range(open_index, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _js_ts_annotation_counts(text: str) -> tuple[int, int]:
+    function_patterns = (
+        r"(?:async\s+)?function\s+\w+\s*\((?P<args1>[^)]*)\)"
+        r"\s*(?P<ret1>:\s*[A-Za-z_$][\w$<>\[\]|., &{}]*)?",
+        r"(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?\((?P<args2>[^)]*)\)"
+        r"\s*(?P<ret2>:\s*[A-Za-z_$][\w$<>\[\]|., &{}]*)?\s*=>",
+        r"(?m)^\s*(?:public\s+|private\s+|protected\s+)?\w+\s*\((?P<args3>[^)]*)\)"
+        r"\s*(?P<ret3>:\s*[A-Za-z_$][\w$<>\[\]|., &{}]*)?\s*\{",
+    )
+    function_headers: list[tuple[str, bool]] = []
+    for pattern in function_patterns:
+        for match in re.finditer(pattern, text):
+            args = next(
+                (group for group in match.groups() if group and not group.startswith(":")),
+                "",
+            )
+            has_return = any(group and group.strip().startswith(":") for group in match.groups())
+            function_headers.append((args, has_return))
+
+    annotatable = 0
+    annotated = 0
+    for header, has_return in function_headers:
+        args = [arg.strip() for arg in header.split(",") if arg.strip()]
+        annotatable += len(args)
+        annotated += sum(":" in arg for arg in args)
+        annotatable += 1
+        annotated += int(has_return)
+
+    typed_declarations = TS_TYPE_DECL_RE.findall(text)
+    annotatable += len(typed_declarations)
+    annotated += len(typed_declarations)
+
+    any_usage = len(re.findall(r"\bany\b", text))
+    annotated = max(0, annotated - any_usage)
+    return annotated, annotatable
+
+
+def _fallback_identifiers(text: str) -> list[str]:
+    reserved = {
+        "and",
+        "as",
+        "async",
+        "await",
+        "break",
+        "case",
+        "class",
+        "const",
+        "def",
+        "else",
+        "except",
+        "false",
+        "for",
+        "from",
+        "function",
+        "if",
+        "import",
+        "in",
+        "interface",
+        "let",
+        "return",
+        "true",
+        "try",
+        "type",
+        "var",
+        "while",
+    }
+    return [name for name in NAME_RE.findall(text) if name.lower() not in reserved]
+
+
+def _count_comment_lines(lines: list[str], language: str) -> int:
+    if language == "Python":
+        return len(_python_comment_tokens("\n".join(lines)))
+
+    count = 0
+    in_block = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if language == "Python":
+            if stripped.startswith("#"):
+                count += 1
+            continue
+
+        if in_block:
+            count += 1
+            if "*/" in stripped:
+                in_block = False
+            continue
+        if stripped.startswith("//"):
+            count += 1
+        elif stripped.startswith("/*"):
+            count += 1
+            in_block = "*/" not in stripped
+    return count
+
+
+def _count_debug_artifacts(text: str, language: str) -> int:
+    if language == "Python":
+        return _count_python_debug_artifacts(text)
+    return len(DEBUG_ARTIFACT_RE.findall(text))
+
+
+def _count_commented_out_code_blocks(text: str, language: str) -> int:
+    if language == "Python":
+        return _count_python_commented_out_code_blocks(text)
+
+    blocks = 0
+    streak = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        comment_text: str | None = None
+        if language == "Python" and stripped.startswith("#"):
+            comment_text = stripped.lstrip("#").strip()
+        elif language != "Python" and stripped.startswith("//"):
+            comment_text = stripped.lstrip("/").strip()
+        elif language != "Python" and stripped.startswith("*"):
+            comment_text = stripped.lstrip("*").strip()
+
+        if comment_text and _looks_like_code(comment_text):
+            streak += 1
+            continue
+
+        if streak >= 3:
+            blocks += 1
+        streak = 0
+
+    if streak >= 3:
+        blocks += 1
+    return blocks
+
+
+def _count_python_commented_out_code_blocks(text: str) -> int:
+    blocks = 0
+    streak = 0
+    previous_line = -2
+    for line_number, comment_text in _python_comment_tokens(text):
+        if line_number != previous_line + 1:
+            if streak >= 3:
+                blocks += 1
+            streak = 0
+        if _looks_like_code(comment_text):
+            streak += 1
+        else:
+            if streak >= 3:
+                blocks += 1
+            streak = 0
+        previous_line = line_number
+    if streak >= 3:
+        blocks += 1
+    return blocks
+
+
+def _looks_like_code(text: str) -> bool:
+    return bool(
+        re.match(
+            r"^(?:async\s+def|def|class|from|import|if|elif|else:|for|while|try:|except|"
+            r"return|raise|const|let|var|function|export|import\s|type|interface|\})\b",
+            text,
+        )
+        or re.search(r"[{}();=]|=>", text)
+    )
+
+
+def _extract_todos(text: str, language: str) -> list[str]:
+    if language == "Python":
+        todos: list[str] = []
+        for _, comment_text in _python_comment_tokens(text):
+            match = TODO_RE.search("# " + comment_text)
+            if match:
+                todos.append(match.group("body").strip())
+        return todos
+    return [match.group("body").strip() for match in TODO_RE.finditer(text)]
+
+
+def _is_generic_todo(todo: str) -> bool:
+    normalized = todo.strip().lower()
+    if not normalized:
+        return True
+    return bool(GENERIC_TODO_RE.search(normalized)) or len(normalized.split()) <= 3
+
+
+def _test_assertion_counts(text: str) -> tuple[int, int]:
+    assertion_count = len(TEST_ASSERTION_RE.findall(text))
+    shallow_count = len(SHALLOW_ASSERTION_RE.findall(text))
+    return assertion_count, min(assertion_count, shallow_count)
+
+
+def _python_comment_tokens(text: str) -> list[tuple[int, str]]:
+    comments: list[tuple[int, str]] = []
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        for token in tokens:
+            if token.type == tokenize.COMMENT:
+                comments.append((token.start[0], token.string.lstrip("#").strip()))
+    except tokenize.TokenError:
+        return []
+    return comments
+
+
+def _python_code_without_strings_or_comments(text: str) -> str:
+    pieces: list[str] = []
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        for token in tokens:
+            if token.type in {tokenize.STRING, tokenize.COMMENT}:
+                continue
+            pieces.append(token.string)
+    except tokenize.TokenError:
+        return text
+    return " ".join(pieces)
+
+
+def _count_python_debug_artifacts(text: str) -> int:
+    try:
+        tree = _parse_python_quietly(text)
+    except SyntaxError:
+        return len(DEBUG_ARTIFACT_RE.findall(_python_code_without_strings_or_comments(text)))
+
+    count = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        is_builtin_debug = isinstance(function, ast.Name) and function.id in {
+            "print",
+            "breakpoint",
+        }
+        is_pdb_trace = (
+            isinstance(function, ast.Attribute)
+            and function.attr == "set_trace"
+            and isinstance(function.value, ast.Name)
+            and function.value.id == "pdb"
+        )
+        if is_builtin_debug or is_pdb_trace:
+            count += 1
+    return count
+
+
+def _score_naming_uniformity(identifiers: list[str], path: str) -> SignalFinding:
+    if len(identifiers) < 8:
+        return _empty_signal("static.naming_uniformity", "Naming uniformity", path)
+    styles = [_name_style(name) for name in identifiers]
+    counts = Counter(styles)
+    dominant, dominant_count = counts.most_common(1)[0]
+    dominant_ratio = dominant_count / len(styles)
+    if dominant_ratio < 0.82:
+        return _empty_signal("static.naming_uniformity", "Naming uniformity", path)
+    score = min(100.0, (dominant_ratio - 0.75) * 250)
+    return SignalFinding(
+        id="static.naming_uniformity",
+        title="Naming style is highly uniform",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{dominant_ratio:.0%} of identifiers use {dominant} naming",
+        path=path,
+    )
+
+
+def _score_descriptive_names(identifiers: list[str], path: str) -> SignalFinding:
+    if len(identifiers) < 8:
+        return _empty_signal("static.descriptive_names", "Descriptive names", path)
+    descriptive = [name for name in identifiers if _is_descriptive_name(name)]
+    ratio = len(descriptive) / len(identifiers)
+    if ratio < 0.45:
+        return _empty_signal("static.descriptive_names", "Descriptive names", path)
+    score = min(100.0, 35 + ratio * 90)
+    return SignalFinding(
+        id="static.descriptive_names",
+        title="Identifiers are unusually descriptive",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{ratio:.0%} of identifiers are long or highly descriptive",
+        path=path,
+    )
+
+
+def _score_comment_density(
+    comment_density: float,
+    docstring_rate: float,
+    function_count: int,
+    path: str,
+) -> SignalFinding:
+    if comment_density < 0.18 and docstring_rate < 0.75:
+        return _empty_signal("static.comment_density", "Comment density", path)
+    score = min(100.0, comment_density * 260 + docstring_rate * 45)
+    detail = f"comment density is {comment_density:.0%}"
+    if function_count >= 3:
+        detail += f"; docstring rate is {docstring_rate:.0%}"
+    return SignalFinding(
+        id="static.comment_density",
+        title="Comment and docstring density is elevated",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=detail,
+        path=path,
+    )
+
+
+def _score_docstring_coverage(
+    docstring_rate: float, function_count: int, path: str
+) -> SignalFinding:
+    if function_count < 3 or docstring_rate < 0.75:
+        return _empty_signal("static.docstring_coverage", "Docstring coverage", path)
+    score = min(100.0, 25 + docstring_rate * 75 + min(function_count, 10))
+    return SignalFinding(
+        id="static.docstring_coverage",
+        title="Docstring coverage is unusually complete",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{docstring_rate:.0%} of {function_count} functions have docstrings",
+        path=path,
+    )
+
+
+def _score_type_annotation_density(density: float, slots: int, path: str) -> SignalFinding:
+    if slots < 6 or density < 0.75:
+        return _empty_signal("static.type_annotation_density", "Type annotation density", path)
+    score = min(100.0, 20 + density * 80 + min(slots, 20))
+    return SignalFinding(
+        id="static.type_annotation_density",
+        title="Type annotation density is high",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{density:.0%} of {slots} annotatable slots are typed",
+        path=path,
+    )
+
+
+def _score_boilerplate(text: str, language: str, path: str) -> SignalFinding:
+    comment_phrases = _normalized_comment_phrases(text, language)
+    phrase_counts = Counter(comment_phrases)
+    repeated_phrases = [
+        phrase for phrase, count in phrase_counts.items() if count >= 2 and len(phrase) > 10
+    ]
+
+    normalized_windows = _normalized_code_windows(text)
+    repeated_windows = sum(count - 1 for count in Counter(normalized_windows).values() if count > 1)
+    if not repeated_phrases and repeated_windows < 3:
+        return _empty_signal("static.repeated_boilerplate", "Repeated boilerplate", path)
+
+    score = min(100.0, len(repeated_phrases) * 22 + repeated_windows * 7)
+    details: list[str] = []
+    if repeated_phrases:
+        details.append(f"{len(repeated_phrases)} repeated comment phrases")
+    if repeated_windows >= 3:
+        details.append(f"{repeated_windows} repeated code windows")
+    return SignalFinding(
+        id="static.repeated_boilerplate",
+        title="Repeated boilerplate patterns",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail="; ".join(details),
+        path=path,
+    )
+
+
+def _score_function_uniformity(function_lengths: list[int], path: str) -> SignalFinding:
+    if len(function_lengths) < 4:
+        return _empty_signal(
+            "static.function_length_uniformity", "Function length uniformity", path
+        )
+    average = statistics.mean(function_lengths)
+    if average < 4:
+        return _empty_signal(
+            "static.function_length_uniformity", "Function length uniformity", path
+        )
+    stdev = statistics.pstdev(function_lengths)
+    coefficient = stdev / average
+    if coefficient > 0.35:
+        return _empty_signal(
+            "static.function_length_uniformity", "Function length uniformity", path
+        )
+    score = min(100.0, (0.35 - coefficient) * 220)
+    return SignalFinding(
+        id="static.function_length_uniformity",
+        title="Function lengths are unusually uniform",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"function lengths cluster around {average:.1f} lines",
+        path=path,
+    )
+
+
+def _score_complexity_uniformity(complexities: list[int], path: str) -> SignalFinding:
+    if len(complexities) < 4:
+        return _empty_signal("static.complexity_uniformity", "Complexity uniformity", path)
+    average = statistics.mean(complexities)
+    stdev = statistics.pstdev(complexities)
+    if average < 1.5 or stdev > 0.75:
+        return _empty_signal("static.complexity_uniformity", "Complexity uniformity", path)
+    score = min(100.0, 55 + (0.75 - stdev) * 45)
+    return SignalFinding(
+        id="static.complexity_uniformity",
+        title="Cyclomatic complexity has low variance",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=(
+            f"complexity avg {average:.1f}, stdev {stdev:.2f} across {len(complexities)} functions"
+        ),
+        path=path,
+    )
+
+
+def _score_structural_repetition(profiles: list[str], path: str) -> SignalFinding:
+    ratio = _structural_repetition_ratio(profiles)
+    if len(profiles) < 4 or ratio < 0.4:
+        return _empty_signal("static.structural_repetition", "Structural repetition", path)
+    score = min(100.0, 30 + ratio * 85)
+    return SignalFinding(
+        id="static.structural_repetition",
+        title="Functions share repeated structure",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{ratio:.0%} of function shapes repeat within the file",
+        path=path,
+    )
+
+
+def _score_identifier_templates(identifiers: list[str], path: str) -> SignalFinding:
+    if len(identifiers) < 10:
+        return _empty_signal("static.identifier_templates", "Identifier templates", path)
+    templates = [_identifier_template(name) for name in identifiers if len(name) >= 8]
+    repeated = [(template, count) for template, count in Counter(templates).items() if count >= 3]
+    if not repeated:
+        return _empty_signal("static.identifier_templates", "Identifier templates", path)
+    repeated_count = sum(count for _, count in repeated)
+    ratio = repeated_count / max(len(templates), 1)
+    score = min(100.0, 30 + repeated_count * 8 + ratio * 45)
+    return SignalFinding(
+        id="static.identifier_templates",
+        title="Identifier names reuse templates",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{repeated_count} identifiers reuse {len(repeated)} naming templates",
+        path=path,
+    )
+
+
+def _score_error_handling_uniformity(error_shapes: list[str], path: str) -> SignalFinding:
+    repeated = [count for count in Counter(error_shapes).values() if count >= 2]
+    if len(error_shapes) < 3 or not repeated:
+        return _empty_signal("static.error_handling_uniformity", "Error handling uniformity", path)
+    score = min(100.0, 25 + sum(repeated) * 16)
+    return SignalFinding(
+        id="static.error_handling_uniformity",
+        title="Error handling shapes repeat",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{sum(repeated)} try/catch or validation shapes repeat",
+        path=path,
+    )
+
+
+def _score_import_uniformity(import_lines: list[str], path: str) -> SignalFinding:
+    if len(import_lines) < 8:
+        return _empty_signal("static.import_uniformity", "Import uniformity", path)
+    normalized = [_normalize_import(line) for line in import_lines]
+    repeated = sum(count - 1 for count in Counter(normalized).values() if count > 1)
+    if repeated < 4:
+        return _empty_signal("static.import_uniformity", "Import uniformity", path)
+    score = min(80.0, 20 + repeated * 8)
+    return SignalFinding(
+        id="static.import_uniformity",
+        title="Import patterns repeat",
+        category="static",
+        score=score,
+        weight=1.0,
+        detail=f"{repeated} repeated or near-repeated import lines",
+        path=path,
+    )
+
+
+def _score_shallow_test_assertions(
+    assertion_count: int,
+    shallow_count: int,
+    path: str,
+    test_like: bool,
+) -> SignalFinding:
+    if not test_like or assertion_count < 4:
+        return _empty_signal("static.shallow_test_assertions", "Shallow test assertions", path)
+    shallow_ratio = shallow_count / assertion_count
+    if shallow_ratio < 0.65:
+        return _empty_signal("static.shallow_test_assertions", "Shallow test assertions", path)
+    return SignalFinding(
+        id="static.shallow_test_assertions",
+        title="Tests rely on shallow assertions",
+        category="static",
+        score=min(85.0, 25 + shallow_ratio * 70 + assertion_count),
+        weight=1.0,
+        detail=f"{shallow_ratio:.0%} of {assertion_count} test assertions are shallow",
+        path=path,
+    )
+
+
+def _structural_repetition_ratio(profiles: list[str]) -> float:
+    if not profiles:
+        return 0.0
+    repeated = sum(count for count in Counter(profiles).values() if count >= 2)
+    return repeated / len(profiles)
+
+
+def _name_style(name: str) -> str:
+    cleaned = name.strip("_$")
+    if not cleaned:
+        return "other"
+    if cleaned.upper() == cleaned and "_" in cleaned:
+        return "UPPER_SNAKE"
+    if "_" in cleaned and cleaned.lower() == cleaned:
+        return "snake_case"
+    if cleaned[:1].isupper() and "_" not in cleaned:
+        return "PascalCase"
+    if cleaned[:1].islower() and any(char.isupper() for char in cleaned):
+        return "camelCase"
+    if cleaned.islower():
+        return "lowercase"
+    return "other"
+
+
+def _is_descriptive_name(name: str) -> bool:
+    tokens = [token for token in re.split(r"[_$]|(?=[A-Z])", name) if token]
+    return len(name) >= 16 or len(tokens) >= 4
+
+
+def _identifier_template(name: str) -> str:
+    tokens = [token.lower() for token in re.split(r"[_$]|(?=[A-Z])", name) if token]
+    if len(tokens) <= 2:
+        return " ".join(tokens)
+    return f"{tokens[0]} * {tokens[-1]}:{len(tokens)}"
+
+
+def _normalized_comment_phrases(text: str, language: str) -> list[str]:
+    phrases: list[str] = []
+    if language == "Python":
+        for _, comment_text in _python_comment_tokens(text):
+            normalized = COMMENT_PHRASE_RE.sub("", comment_text.lower()).strip()
+            if normalized:
+                phrases.append(normalized)
+        return phrases
+
+    in_block = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        comment_text: str | None = None
+        if language == "Python" and stripped.startswith("#"):
+            comment_text = stripped.lstrip("#").strip()
+        elif language != "Python":
+            if in_block:
+                comment_text = stripped.replace("*/", "").strip(" *")
+                if "*/" in stripped:
+                    in_block = False
+            elif stripped.startswith("//"):
+                comment_text = stripped.lstrip("/").strip()
+            elif stripped.startswith("/*"):
+                comment_text = stripped.replace("/*", "").replace("*/", "").strip(" *")
+                in_block = "*/" not in stripped
+
+        if comment_text:
+            normalized = COMMENT_PHRASE_RE.sub("", comment_text.lower()).strip()
+            if normalized:
+                phrases.append(normalized)
+    return phrases
+
+
+def _normalized_code_windows(text: str) -> list[str]:
+    code_lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", "//", "/*", "*")):
+            continue
+        normalized = re.sub(r"([\'\"]).*?\1", "STR", stripped)
+        normalized = re.sub(r"\b\d+\b", "NUM", normalized)
+        normalized = re.sub(r"\s+", " ", normalized)
+        if normalized:
+            code_lines.append(normalized)
+    return [
+        "\n".join(code_lines[index : index + 3]) for index in range(max(0, len(code_lines) - 2))
+    ]
+
+
+def _extract_import_lines(text: str) -> list[str]:
+    return [
+        line.strip() for line in text.splitlines() if line.strip().startswith(("import ", "from "))
+    ]
+
+
+def _normalize_import(line: str) -> str:
+    line = re.sub(r"\s+", " ", line.strip())
+    line = re.sub(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", "NAME", line)
+    return line
+
+
+def _extract_error_shapes(text: str) -> list[str]:
+    shapes: list[str] = []
+    for match in re.finditer(r"\btry\b[\s\S]{0,600}?\b(?:except|catch)\b", text):
+        block = match.group(0)
+        raises = len(re.findall(r"\braise\b|\bthrow\b", block))
+        logs = len(re.findall(r"\blog(?:ger|ging)?\b|console\.error", block, re.I))
+        returns = len(re.findall(r"\breturn\b", block))
+        shapes.append(f"try|raises={raises}|logs={logs}|returns={returns}")
+    guard_pattern = r"\bif\s+[^\n]{0,120}\b(?:raise|throw|return)\b"
+    for match in re.finditer(guard_pattern, text):
+        shapes.append("guard|" + re.sub(r"\s+", " ", match.group(0))[:80])
+    return shapes
+
+
+def _is_test_path_or_text(path: str, text: str) -> bool:
+    lower = path.lower()
+    if any(part in lower for part in ("test", "spec", "__tests__")):
+        return True
+    return bool(re.search(r"\b(pytest|unittest|describe\(|it\(|expect\(|assert )\b", text))
+
+
+def _empty_signal(id_: str, title: str, path: str) -> SignalFinding:
+    return SignalFinding(
+        id=id_, title=title, category="static", score=0, weight=0, detail="", path=path
+    )
+
+
+def _ai_config_findings(repo_path: Path) -> list[SignalFinding]:
+    matches: list[str] = []
+    phrase_matches: list[str] = []
+
+    for root, dirnames, filenames in os.walk(repo_path):
+        root_path = Path(root)
+        root_relative = root_path.relative_to(repo_path)
+
+        kept_dirnames = []
+        for dirname in dirnames:
+            relative_dir = _relative_child(root_relative, dirname)
+            if _is_excluded(relative_dir, ()):
+                continue
+            if _is_ai_config_path(relative_dir):
+                matches.append(relative_dir.as_posix())
+            kept_dirnames.append(dirname)
+        dirnames[:] = kept_dirnames
+
+        for filename in filenames:
+            path = root_path / filename
+            relative = _relative_child(root_relative, filename)
+            if _is_excluded(relative, ()):
+                continue
+            if _is_ai_config_path(relative):
+                matches.append(relative.as_posix())
+            try:
+                file_size = path.stat().st_size
+            except OSError:
+                continue
+            if file_size <= 1_000_000 and _file_contains_ai_phrase(path):
+                phrase_matches.append(f"{relative.as_posix()} contains '{AI_CONFIG_PHRASE}'")
+
+    evidence = sorted(set(matches + phrase_matches))
+    if not evidence:
+        return []
+
+    detail = "Found explicit AI-assistant project evidence: " + "; ".join(evidence[:10])
+    if len(evidence) > 10:
+        detail += f"; and {len(evidence) - 10} more"
+    return [
+        SignalFinding(
+            id="git.ai_config_files_present",
+            title="AI assistant config files present",
+            category="git",
+            score=100,
+            weight=8.0,
+            detail=detail,
+        )
+    ]
+
+
+def _is_ai_config_path(relative: Path) -> bool:
+    path_text = relative.as_posix().lower()
+    return (
+        relative.name.lower() in AI_CONFIG_NAMES_NORMALIZED
+        or path_text in AI_CONFIG_PATHS_NORMALIZED
+    )
+
+
+def _file_contains_ai_phrase(path: Path) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore").lower()
+    except OSError:
+        return False
+    return AI_CONFIG_PHRASE in text
+
+
+def _parse_python_quietly(text: str) -> ast.AST:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        return ast.parse(text)
+
+
+def _starter_template_findings(repo_path: Path) -> list[SignalFinding]:
+    hits: set[str] = set()
+    for relative_name, label in STARTER_TEMPLATE_FILES.items():
+        if (repo_path / relative_name).exists():
+            hits.add(label)
+
+    dependencies = _load_declared_dependencies(repo_path)
+    for dependency, label in STARTER_TEMPLATE_DEPENDENCIES.items():
+        if dependency in dependencies:
+            hits.add(label)
+
+    package_json = repo_path / "package.json"
+    if package_json.exists():
+        try:
+            package_data = json.loads(package_json.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, json.JSONDecodeError):
+            package_data = {}
+        scripts = package_data.get("scripts", {}) if isinstance(package_data, dict) else {}
+        if isinstance(scripts, dict) and any("vite" in str(value) for value in scripts.values()):
+            hits.add("Vite starter")
+        if isinstance(scripts, dict) and any("next" in str(value) for value in scripts.values()):
+            hits.add("Next.js starter")
+        if isinstance(scripts, dict) and any("ng " in f" {value} " for value in scripts.values()):
+            hits.add("Angular starter")
+        if isinstance(scripts, dict) and any("nest " in f" {value} " for value in scripts.values()):
+            hits.add("NestJS starter")
+        if isinstance(scripts, dict) and any("expo " in f" {value} " for value in scripts.values()):
+            hits.add("Expo starter")
+
+    if (repo_path / "Gemfile").exists() and (repo_path / "config" / "routes.rb").exists():
+        hits.add("Rails starter")
+    if (repo_path / "artisan").exists() and (repo_path / "composer.json").exists():
+        hits.add("Laravel starter")
+
+    if not hits:
+        return []
+
+    labels = sorted(hits)
+    return [
+        SignalFinding(
+            id="dampener.static.starter_template_detected",
+            title="Known starter or framework template detected",
+            category="dampener",
+            score=min(70.0, 35 + len(labels) * 8),
+            weight=0.55,
+            detail=(
+                "Detected starter-template evidence: "
+                f"{', '.join(labels[:6])}. Template uniformity is not AI evidence by itself."
+            ),
+            evidence_count=len(labels),
+            risk_impact="lowers",
+            confidence_impact="contextual",
+        )
+    ]
+
+
+def _educational_material_findings(repo_path: Path) -> list[SignalFinding]:
+    name_hits: set[str] = set()
+    repo_name = re.sub(r"[_/]+", "-", f"{repo_path.parent.name}-{repo_path.name}".lower())
+    for term, label in EDUCATIONAL_REPO_NAME_TERMS.items():
+        if term in repo_name:
+            name_hits.add(label)
+
+    readme_hits: set[str] = set()
+    readme = _read_root_readme(repo_path).lower()
+    for phrase, label in EDUCATIONAL_README_PHRASES.items():
+        if phrase in readme:
+            readme_hits.add(label)
+
+    hits = name_hits | readme_hits
+    has_strong_readme_evidence = bool(readme_hits & EDUCATIONAL_STRONG_README_LABELS)
+    if name_hits:
+        if len(hits) < 2:
+            return []
+    elif len(readme_hits) < 3 or not has_strong_readme_evidence:
+        return []
+
+    labels = sorted(hits)
+    return [
+        SignalFinding(
+            id="dampener.static.educational_or_example_repo",
+            title="Educational, book, or example repository context",
+            category="dampener",
+            score=min(75.0, 35 + len(labels) * 7),
+            weight=0.5,
+            detail=(
+                "Detected educational/example context: "
+                f"{', '.join(labels[:6])}. Tutorial and book repos often land in large, tidy drops."
+            ),
+            evidence_count=len(labels),
+            risk_impact="lowers",
+            confidence_impact="contextual",
+        )
+    ]
+
+
+def _aggregate_findings(files: list[FileFinding], repo_path: Path) -> list[SignalFinding]:
+    findings: list[SignalFinding] = _ai_config_findings(repo_path)
+    findings.extend(_starter_template_findings(repo_path))
+    findings.extend(_educational_material_findings(repo_path))
+    if not files:
+        findings.append(
+            SignalFinding(
+                id="static.no_supported_files",
+                title="No supported source files",
+                category="static",
+                score=10,
+                weight=0.3,
+                detail="GitZero did not find Python, JavaScript, or TypeScript files to inspect.",
+            )
+        )
+        return findings
+
+    high_files = [file for file in files if file.score >= 55]
+    medium_files = [file for file in files if file.score >= 35]
+    average_score = statistics.mean(file.score for file in files)
+    average_comment_density = statistics.mean(file.comment_density for file in files)
+    high_density_files = [file for file in files if file.comment_density >= 0.18]
+    docstring_rates = [file.docstring_rate for file in files if file.docstring_rate > 0]
+    type_rates = [
+        file.type_annotation_density for file in files if file.type_annotation_density > 0
+    ]
+    all_complexities = [
+        file.complexity_average for file in files if file.complexity_average is not None
+    ]
+    complexity_files = [
+        file
+        for file in files
+        if file.complexity_average is not None and file.complexity_stdev is not None
+    ]
+    line_counts = [file.lines for file in files]
+    total_debug_artifacts = sum(file.debug_artifact_count for file in files)
+    total_commented_code_blocks = sum(file.commented_code_block_count for file in files)
+    total_todos = sum(file.todo_count for file in files)
+    total_generic_todos = sum(file.generic_todo_count for file in files)
+    total_assertions = sum(file.test_assertion_count for file in files)
+    total_shallow_assertions = sum(file.shallow_test_assertion_count for file in files)
+    repeated_structure_files = [file for file in files if file.structure_repetition_score >= 0.4]
+    test_files = [file for file in files if _is_test_path_or_text(file.path, "")]
+
+    if medium_files:
+        score = min(100.0, average_score + len(high_files) * 8 + len(medium_files) * 2)
+        findings.append(
+            SignalFinding(
+                id="static.files_with_ai_like_shape",
+                title="Static code patterns clustered in files",
+                category="static",
+                score=score,
+                weight=1.3,
+                detail=(
+                    f"{len(medium_files)} of {len(files)} files show notable static-code signals; "
+                    f"{len(high_files)} are high-signal files."
+                ),
+            )
+        )
+
+    if high_density_files and average_comment_density >= 0.12:
+        findings.append(
+            SignalFinding(
+                id="static.comment_density",
+                title="Comment and docstring density is elevated",
+                category="static",
+                score=min(100.0, 35 + average_comment_density * 260 + len(high_density_files) * 3),
+                weight=0.8,
+                detail=(
+                    f"Average comment density is {average_comment_density:.0%}; "
+                    f"{len(high_density_files)} files are above the high-density threshold."
+                ),
+            )
+        )
+
+    if len(docstring_rates) >= 3 and statistics.mean(docstring_rates) >= 0.75:
+        findings.append(
+            SignalFinding(
+                id="static.repo_docstring_coverage",
+                title="Docstring coverage is high across files",
+                category="static",
+                score=min(100.0, 30 + statistics.mean(docstring_rates) * 70),
+                weight=0.8,
+                detail=f"Mean docstring coverage is {statistics.mean(docstring_rates):.0%}.",
+            )
+        )
+
+    if len(type_rates) >= 3 and statistics.mean(type_rates) >= 0.75:
+        findings.append(
+            SignalFinding(
+                id="static.repo_type_annotation_density",
+                title="Type annotation density is high across files",
+                category="static",
+                score=min(100.0, 30 + statistics.mean(type_rates) * 70),
+                weight=0.75,
+                detail=f"Mean type coverage is {statistics.mean(type_rates):.0%}.",
+            )
+        )
+
+    if len(all_complexities) >= 5 or len(complexity_files) >= 3:
+        stdev = statistics.pstdev(all_complexities)
+        avg = statistics.mean(all_complexities)
+        if avg >= 1.5 and stdev <= 0.6:
+            findings.append(
+                SignalFinding(
+                    id="static.repo_complexity_uniformity",
+                    title="Complexity is uniform across files",
+                    category="static",
+                    score=min(90.0, 45 + (0.6 - stdev) * 70),
+                    weight=0.6,
+                    detail=f"File complexity avg {avg:.1f}, stdev {stdev:.2f}.",
+                )
+            )
+
+    if len(files) >= 5 and sum(line_counts) >= 250:
+        if total_debug_artifacts == 0 and total_commented_code_blocks == 0:
+            findings.append(
+                SignalFinding(
+                    id="static.debug_artifact_absence",
+                    title="No debug residue found",
+                    category="static",
+                    score=min(80.0, 42 + len(files) * 2 + sum(line_counts) / 300),
+                    weight=0.75,
+                    detail=(
+                        "No print/console/debugger breakpoints or commented-out code blocks "
+                        f"were found across {len(files)} files."
+                    ),
+                )
+            )
+        else:
+            findings.append(
+                SignalFinding(
+                    id="dampener.static.debug_artifacts_present",
+                    title="Debug artifacts are present",
+                    category="dampener",
+                    score=min(
+                        75.0,
+                        25 + total_debug_artifacts * 8 + total_commented_code_blocks * 10,
+                    ),
+                    weight=0.6,
+                    detail=(
+                        f"Found {total_debug_artifacts} debug artifacts and "
+                        f"{total_commented_code_blocks} commented-out code blocks."
+                    ),
+                    evidence_count=total_debug_artifacts + total_commented_code_blocks,
+                    risk_impact="lowers",
+                )
+            )
+
+    if len(line_counts) >= 6:
+        avg_lines = statistics.mean(line_counts)
+        if avg_lines >= 20:
+            stdev_lines = statistics.pstdev(line_counts)
+            coefficient = stdev_lines / avg_lines
+            if coefficient <= 0.35:
+                findings.append(
+                    SignalFinding(
+                        id="static.file_size_uniformity",
+                        title="File sizes are unusually uniform",
+                        category="static",
+                        score=min(85.0, 35 + (0.35 - coefficient) * 120 + len(files)),
+                        weight=0.75,
+                        detail=(
+                            f"Source file sizes average {avg_lines:.0f} lines with "
+                            f"{stdev_lines:.1f} line stdev."
+                        ),
+                    )
+                )
+            elif coefficient >= 1.0:
+                findings.append(
+                    SignalFinding(
+                        id="dampener.static.organic_file_size_variance",
+                        title="File sizes vary organically",
+                        category="dampener",
+                        score=min(70.0, 25 + (coefficient - 1.0) * 20),
+                        weight=0.45,
+                        detail=(
+                            f"Source file sizes have high variance "
+                            f"(avg {avg_lines:.0f}, stdev {stdev_lines:.1f})."
+                        ),
+                    )
+                )
+
+    if total_todos >= 3:
+        generic_ratio = total_generic_todos / total_todos
+        if generic_ratio >= 0.75:
+            findings.append(
+                SignalFinding(
+                    id="static.generic_todo_patterns",
+                    title="TODO comments are generic",
+                    category="static",
+                    score=min(80.0, 30 + generic_ratio * 55 + total_todos),
+                    weight=0.55,
+                    detail=(
+                        f"{total_generic_todos} of {total_todos} TODO/FIXME comments "
+                        "use generic language."
+                    ),
+                )
+            )
+        elif generic_ratio <= 0.34:
+            findings.append(
+                SignalFinding(
+                    id="dampener.static.personal_todo_patterns",
+                    title="TODO comments are specific or personal",
+                    category="dampener",
+                    score=min(65.0, 25 + (1 - generic_ratio) * 40),
+                    weight=0.45,
+                    detail=(
+                        f"{total_todos - total_generic_todos} of {total_todos} TODO/FIXME "
+                        "comments mention specific work or human context."
+                    ),
+                    evidence_count=total_todos - total_generic_todos,
+                    risk_impact="lowers",
+                )
+            )
+
+    if repeated_structure_files:
+        findings.append(
+            SignalFinding(
+                id="static.repo_structural_repetition",
+                title="Structural repetition appears across files",
+                category="static",
+                score=min(100.0, 35 + len(repeated_structure_files) * 8),
+                weight=0.9,
+                detail=f"{len(repeated_structure_files)} files contain repeated function shapes.",
+            )
+        )
+
+    if files:
+        test_ratio = len(test_files) / len(files)
+        if len(files) >= 8 and (test_ratio <= 0.03 or test_ratio >= 0.55):
+            findings.append(
+                SignalFinding(
+                    id="static.test_to_code_ratio",
+                    title="Test-to-code ratio is unusual",
+                    category="static",
+                    score=min(70.0, 25 + abs(test_ratio - 0.22) * 120),
+                    weight=0.35,
+                    detail=f"{len(test_files)} of {len(files)} scanned files look like tests.",
+                )
+            )
+        if len(test_files) >= 2 and total_assertions >= 6:
+            shallow_ratio = total_shallow_assertions / total_assertions
+            if shallow_ratio >= 0.65:
+                findings.append(
+                    SignalFinding(
+                        id="static.shallow_test_quality",
+                        title="Test suite relies on shallow checks",
+                        category="static",
+                        score=min(85.0, 30 + shallow_ratio * 60 + len(test_files)),
+                        weight=0.6,
+                        detail=(
+                            f"{total_shallow_assertions} of {total_assertions} assertions "
+                            "look like existence/type/truthiness checks."
+                        ),
+                    )
+                )
+            elif shallow_ratio <= 0.3:
+                findings.append(
+                    SignalFinding(
+                        id="dampener.static.substantive_tests_present",
+                        title="Tests include substantive assertions",
+                        category="dampener",
+                        score=min(65.0, 30 + (0.3 - shallow_ratio) * 80),
+                        weight=0.45,
+                        detail=(
+                            f"Only {total_shallow_assertions} of {total_assertions} assertions "
+                            "look shallow."
+                        ),
+                    )
+                )
+
+    code_text = _repository_code_text(repo_path)
+    findings.extend(_readme_alignment_findings(repo_path, files, code_text))
+    findings.extend(_dependency_findings(repo_path, files, code_text))
+
+    top_file = max(files, key=lambda file: file.score)
+    if top_file.score >= 45:
+        findings.append(
+            SignalFinding(
+                id="static.top_file",
+                title="Highest-signal file",
+                category="static",
+                score=top_file.score,
+                weight=0.7,
+                detail="; ".join(top_file.highlights[:3]) or "Static code features were elevated.",
+                path=top_file.path,
+            )
+        )
+
+    return findings
+
+
+def _repository_code_text(repo_path: Path, *, max_chars: int = 2_000_000) -> str:
+    chunks: list[str] = []
+    current_size = 0
+    for path, relative in _iter_source_paths(repo_path, ()):
+        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue
+        if _looks_generated(relative, path):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        remaining = max_chars - current_size
+        if remaining <= 0:
+            break
+        chunks.append(text[:remaining])
+        current_size += min(len(text), remaining)
+    return "\n".join(chunks).lower()
+
+
+def _readme_alignment_findings(
+    repo_path: Path,
+    files: list[FileFinding],
+    code_text: str,
+) -> list[SignalFinding]:
+    readme = _read_root_readme(repo_path)
+    if not readme:
+        return []
+
+    readme_lower = readme.lower()
+    findings: list[SignalFinding] = []
+    generic_claims = [claim for claim in README_GENERIC_CLAIMS if claim in readme_lower]
+    claimed_terms = sorted(term for term in README_FEATURE_TERMS if term in readme_lower)
+    missing_terms = [
+        term for term in claimed_terms if term.replace("-", "") not in code_text.replace("-", "")
+    ]
+
+    if len(generic_claims) >= 3 and (len(files) <= 8 or sum(file.lines for file in files) <= 900):
+        findings.append(
+            SignalFinding(
+                id="static.readme_broad_claims",
+                title="README claims are broad for the implementation size",
+                category="static",
+                score=min(75.0, 28 + len(generic_claims) * 8 + max(0, 8 - len(files)) * 2),
+                weight=0.45,
+                detail=(
+                    f"README uses broad claims ({', '.join(generic_claims[:5])}) "
+                    f"while only {len(files)} source files were scanned."
+                ),
+            )
+        )
+
+    if len(claimed_terms) >= 3 and len(missing_terms) / len(claimed_terms) >= 0.6:
+        findings.append(
+            SignalFinding(
+                id="static.readme_code_misalignment",
+                title="README feature claims outpace scanned code",
+                category="static",
+                score=min(80.0, 30 + len(missing_terms) * 8),
+                weight=0.5,
+                detail=(
+                    f"README mentions {', '.join(claimed_terms[:6])}; "
+                    f"{len(missing_terms)} terms were not found in scanned source text."
+                ),
+            )
+        )
+    elif len(claimed_terms) >= 3:
+        findings.append(
+            SignalFinding(
+                id="dampener.static.readme_code_alignment",
+                title="README terms appear in code",
+                category="dampener",
+                score=min(55.0, 20 + (len(claimed_terms) - len(missing_terms)) * 6),
+                weight=0.3,
+                detail=(
+                    f"{len(claimed_terms) - len(missing_terms)} of {len(claimed_terms)} "
+                    "README feature terms appear in source text."
+                ),
+            )
+        )
+
+    return findings
+
+
+def _read_root_readme(repo_path: Path) -> str:
+    for name in ("README.md", "README.rst", "README.txt"):
+        path = repo_path / name
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return ""
+    return ""
+
+
+def _dependency_findings(
+    repo_path: Path,
+    files: list[FileFinding],
+    code_text: str,
+) -> list[SignalFinding]:
+    dependencies = _load_declared_dependencies(repo_path)
+    if not dependencies:
+        return []
+
+    findings: list[SignalFinding] = []
+    import_names = {dependency: _dependency_import_names(dependency) for dependency in dependencies}
+    unused = [
+        dependency
+        for dependency, names in import_names.items()
+        if not any(_dependency_name_used(name, code_text) for name in names)
+    ]
+    total_lines = sum(file.lines for file in files)
+
+    if len(dependencies) >= 5 and len(unused) / len(dependencies) >= 0.45:
+        findings.append(
+            SignalFinding(
+                id="static.unused_dependencies",
+                title="Declared dependencies look unused",
+                category="static",
+                score=min(85.0, 30 + (len(unused) / len(dependencies)) * 60),
+                weight=0.55,
+                detail=(
+                    f"{len(unused)} of {len(dependencies)} dependencies were not referenced "
+                    "by straightforward imports."
+                ),
+            )
+        )
+
+    heavy = sorted(dependency for dependency in dependencies if _is_heavy_dependency(dependency))
+    if heavy and total_lines <= 900:
+        findings.append(
+            SignalFinding(
+                id="static.heavy_dependencies_small_repo",
+                title="Heavy dependencies in a small codebase",
+                category="static",
+                score=min(75.0, 28 + len(heavy) * 10 + max(0, 900 - total_lines) / 90),
+                weight=0.4,
+                detail=(
+                    f"Heavy packages ({', '.join(heavy[:6])}) are declared across "
+                    f"{total_lines:,} scanned source lines."
+                ),
+            )
+        )
+
+    duplicates = _duplicate_dependency_categories(dependencies)
+    if duplicates:
+        findings.append(
+            SignalFinding(
+                id="static.duplicate_dependency_roles",
+                title="Dependencies overlap in purpose",
+                category="static",
+                score=min(70.0, 30 + len(duplicates) * 10),
+                weight=0.35,
+                detail="Multiple libraries cover the same role: " + "; ".join(duplicates[:4]),
+            )
+        )
+
+    if dependencies and len(unused) / len(dependencies) <= 0.2:
+        findings.append(
+            SignalFinding(
+                id="dampener.static.dependencies_are_used",
+                title="Declared dependencies appear used",
+                category="dampener",
+                score=min(55.0, 20 + (1 - len(unused) / len(dependencies)) * 35),
+                weight=0.25,
+                detail=(
+                    f"{len(dependencies) - len(unused)} of {len(dependencies)} dependencies "
+                    "were referenced by straightforward imports."
+                ),
+            )
+        )
+
+    return findings
+
+
+def _load_declared_dependencies(repo_path: Path) -> set[str]:
+    dependencies: set[str] = set()
+    pyproject = repo_path / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, tomllib.TOMLDecodeError):
+            data = {}
+        project = data.get("project", {}) if isinstance(data, dict) else {}
+        for item in project.get("dependencies", []) if isinstance(project, dict) else []:
+            name = _normalize_dependency_name(str(item))
+            if name:
+                dependencies.add(name)
+
+    requirements = repo_path / "requirements.txt"
+    if requirements.exists():
+        try:
+            lines = requirements.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith("-"):
+                continue
+            name = _normalize_dependency_name(stripped)
+            if name:
+                dependencies.add(name)
+
+    package_json = repo_path / "package.json"
+    if package_json.exists():
+        try:
+            data = json.loads(package_json.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        for section in ("dependencies", "devDependencies", "peerDependencies"):
+            section_data = data.get(section, {}) if isinstance(data, dict) else {}
+            if not isinstance(section_data, dict):
+                continue
+            dependencies.update(_normalize_dependency_name(name) for name in section_data)
+
+    return {dependency for dependency in dependencies if dependency}
+
+
+def _normalize_dependency_name(raw: str) -> str:
+    raw = raw.strip()
+    if not raw:
+        return ""
+    if raw.startswith("@"):
+        parts = raw.split("/", 2)
+        return "/".join(parts[:2]).lower()
+    match = re.match(r"[A-Za-z0-9_.-]+", raw)
+    return match.group(0).lower() if match else ""
+
+
+def _dependency_import_names(dependency: str) -> set[str]:
+    mapping = {
+        "beautifulsoup4": {"bs4"},
+        "gitpython": {"git"},
+        "pillow": {"pil"},
+        "pyyaml": {"yaml"},
+        "scikit-learn": {"sklearn"},
+    }
+    if dependency in mapping:
+        return mapping[dependency]
+    if dependency.startswith("@"):
+        return {dependency, dependency.split("/")[-1].replace("-", "_")}
+    base = dependency.split("[", 1)[0]
+    return {base, base.replace("-", "_")}
+
+
+def _dependency_name_used(name: str, code_text: str) -> bool:
+    escaped = re.escape(name.lower())
+    return bool(
+        re.search(rf"\b(?:import|from)\s+{escaped}\b", code_text)
+        or re.search(rf"\brequire\s*\(\s*['\"]{escaped}", code_text)
+        or re.search(rf"\bfrom\s+['\"]{escaped}", code_text)
+    )
+
+
+def _is_heavy_dependency(dependency: str) -> bool:
+    heavy = {
+        "@angular/core",
+        "celery",
+        "django",
+        "fastapi",
+        "langchain",
+        "lodash",
+        "moment",
+        "next",
+        "numpy",
+        "pandas",
+        "react",
+        "scipy",
+        "sqlalchemy",
+        "tensorflow",
+        "torch",
+    }
+    return dependency in heavy
+
+
+def _duplicate_dependency_categories(dependencies: set[str]) -> list[str]:
+    groups = {
+        "HTTP clients": {"aiohttp", "axios", "got", "httpx", "node-fetch", "requests"},
+        "date utilities": {"date-fns", "dayjs", "moment", "luxon"},
+        "validation": {"joi", "marshmallow", "pydantic", "yup", "zod"},
+        "state stores": {"jotai", "mobx", "redux", "zustand"},
+    }
+    duplicates: list[str] = []
+    for label, names in groups.items():
+        hits = sorted(dependencies & names)
+        if len(hits) >= 2:
+            duplicates.append(f"{label}: {', '.join(hits)}")
+    return duplicates

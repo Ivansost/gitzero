@@ -1,0 +1,319 @@
+input: corpus/_prep/corpus_features_cleaned_v6.jsonl
+rows: 129
+
+Labels
+  ai_assisted: 24 (positive)
+  ai_generated: 24 (positive)
+  human: 55 (negative)
+  template: 26 (negative)
+
+Groups
+  unique groups: 115
+  repeated groups: 4
+  folds: 5
+
+Hard Evidence Prevalence
+  positive: 42/48
+  negative: 0/81
+
+Positive Hard Evidence Details
+  ai_assisted ai_assisted/FotionOrg__Fotion: claude.md
+  ai_assisted ai_assisted/Noveum__ai-gateway: .cursorrules
+  ai_assisted ai_assisted/Nutlope__make-comics: AGENTS.md
+  ai_assisted ai_assisted/OneCoach-org__onecoach-ui: AGENTS.MD; GEMINI.MD
+  ai_assisted ai_assisted/adamghill__refreshcss: AGENTS.md
+  ai_assisted ai_assisted/adhi-thirumala__oxeye: .github/workflows/claude-code-review.yml; .github/workflows/claude.yml; claude.md
+  ai_assisted ai_assisted/beverm2391__bens-ai-system: .cursorrules
+  ai_assisted ai_assisted/cppalliance__buffers: .cursorignore; .github/copilot-instructions.md; CLAUDE.md
+  ai_assisted ai_assisted/darraghoriordan__use-miller: .github/copilot-instructions.md; AGENTS.md
+  ai_assisted ai_assisted/deanthecoder__MasterG33k: agents.md
+  ai_assisted ai_assisted/hongyuan007__tapword-translator: AGENTS.md
+  ai_assisted ai_assisted/karis-ai__karis: AGENTS.md; agents/AGENTS.md
+  ai_assisted ai_assisted/kenneth-liao__mcp-launchpad: .github/workflows/claude-code-review.yml; .github/workflows/claude.yml; CLAUDE.md
+  ai_assisted ai_assisted/kmorrill__op-xy-vibing: AGENTS.md; CLAUDE.md; CLAUDE.md contains 'vibe cod'; PROJECT_PLAN.md contains 'vibe cod'; README.md contains 'vibe cod'; conductor/__init__.py contains 'vibe cod'; docs/future-features/Exploration_ Listener_Evaluator ...
+  ai_assisted ai_assisted/maciej-trebacz__ff7-ultima: .cursorignore; .cursorrules; AGENTS.md
+  ai_assisted ai_assisted/mattsq__anml-exp: Agents.md
+  ai_assisted ai_assisted/maxcountryman__underway: AGENTS.md
+  ai_assisted ai_assisted/nirholas__UCAI: .github/copilot-instructions.md; AGENTS.md; CLAUDE.md; GEMINI.md; llms.txt contains 'vibe cod'; web-v2/public/llms.txt contains 'vibe cod'; web-v2/src/app/layout.tsx contains 'vibe cod'
+  ai_assisted ai_assisted/shanraisshan__claude-code-best-practice: !/thumbnail/50k-stars.html contains 'vibe cod'; !/thumbnail/daily-workflows.html contains 'vibe cod'; !/video-presentation-transcript/1-video-workflow.html contains 'vibe cod'; !/video-presentation-transcript/1-video-...
+  ai_assisted ai_assisted/tsotimus__vite-plugin-csp-guard: AGENTS.md
+  ai_assisted ai_assisted/twostraws__SwiftAgents: AGENTS.md
+  ai_assisted ai_assisted/utensils__essex: .cursorrules; .windsurfrules; CLAUDE.md
+  ai_assisted ai_assisted/yianzhou__yianzhou.github.io: Claude.md; docs/agent/index.md contains 'vibe cod'; docs/agent/openclaw.md contains 'vibe cod'
+  ai_assisted ai_assisted/zHanyo__ultimate-setup: Agents.md
+  ai_generated ai_generated/ACHolding__claude-anthropic-jailbreak-12.23.25: claude.md
+  ai_generated ai_generated/Agentic1__AG1_AEtherBus: AG1_AetherBus/Agents.md
+  ai_generated ai_generated/AgiFlow__openskill: .claude; .gemini; AGENTS.md; CLAUDE.md; openspec/AGENTS.md
+  ai_generated ai_generated/Jimuelzxc__yourfine: AGENTS.MD; Docs/GEMINI.md; NOTES.txt contains 'vibe cod'
+  ai_generated ai_generated/VRSEN__agency-swarm-memory-demo: .cursorrules
+  ai_generated ai_generated/animeshkundu__youtube-audio: .claude; .github/copilot-instructions.md; claude.md
+  ai_generated ai_generated/chatchailim__SecureGen: .claude; CLAUDE.MD
+  ai_generated ai_generated/cxblovedd__etl_neo4j_health_portrait: AGENTS.MD
+  ai_generated ai_generated/giobi__brain-seo-template: agents.md
+  ai_generated ai_generated/jarredbarber__erdos-729: AGENTS.md; CLAUDE.md
+  ai_generated ai_generated/kierabiad__zoho_aichat: agents.md
+  ai_generated ai_generated/pantheon-upstreams__nextjs15-cache-starter: claude.md
+  ai_generated ai_generated/pluto-atom-4__dotenvx-playground: CLAUDE.md
+  ai_generated ai_generated/rafaelcostaleite__new_blog_veloder: claude.md
+  ai_generated ai_generated/sibblegp__ODAI: .github/workflows/claude-code-review.yml; .github/workflows/claude.yml; AGENTS.md; CLAUDE.md
+  ai_generated ai_generated/surajfale__surajfale: .claude; AGENTS.MD; CLAUDE.md
+  ai_generated ai_generated/tomato-architecture__url-shortener-tomato-architecture: AGENTS.md
+  ai_generated ai_generated/zixindh__shdr: Agents.md
+
+=== full_model ===
+features: 139
+Overall grouped out-of-fold metrics
+  ROC-AUC: 0.987
+  PR-AUC:  0.986
+  Brier:   0.040
+
+Fold metrics
+  fold 1: ROC-AUC=0.919 PR-AUC=0.943 Brier=0.059
+  fold 2: ROC-AUC=1.000 PR-AUC=1.000 Brier=0.046
+  fold 3: ROC-AUC=1.000 PR-AUC=1.000 Brier=0.043
+  fold 4: ROC-AUC=1.000 PR-AUC=1.000 Brier=0.041
+  fold 5: ROC-AUC=1.000 PR-AUC=1.000 Brier=0.009
+
+Threshold confusion matrices
+  threshold 0.50: TP=44 FP=0 TN=81 FN=4 precision=1.000 recall=0.917 accuracy=0.969
+  threshold 0.70: TP=36 FP=0 TN=81 FN=12 precision=1.000 recall=0.750 accuracy=0.907
+  threshold 0.85: TP=28 FP=0 TN=81 FN=20 precision=1.000 recall=0.583 accuracy=0.845
+
+Misclassified repos at threshold 0.50
+  false negatives
+    p=0.077 ai_generated ai_generated/anantrp__chat-widget top=[git.commit_message_uniformity, git.short_generic_messages, git.no_commit_typos]
+    p=0.148 ai_generated ai_generated/bbrizzee__placeholder-gpt top=[]
+    p=0.278 ai_generated ai_generated/ekzhu__WhatGPT top=[git.large_commits, git.single_drop_repo, git.file_creation_wave, git.short_project_span]
+    p=0.317 ai_generated ai_generated/RaphaelKhoury__ProgramsGeneratedByChatGPT top=[git.file_creation_wave, git.large_commits, git.commit_message_uniformity, git.single_author_history]
+
+Top feature importances
+  0.1626  signal.git.ai_config_files_present_weight
+  0.1422  signal.git.ai_config_files_present_present
+  0.1396  signal.git.ai_config_files_present_score
+  0.0466  git_commit_count
+  0.0375  signal.dampener.git.long_lived_history_score
+  0.0301  static_signal_count
+  0.0272  lines_scanned
+  0.0269  signal.dampener.git.multi_author_history_score
+  0.0225  files_indexed
+  0.0146  signal.dampener.git.multi_author_history_present
+  0.0137  signal.dampener.git.merge_commits_present_score
+  0.0130  git_signal_count
+  0.0127  files_scanned
+  0.0124  signal.dampener.git.multi_author_history_weight
+  0.0106  signal.git.large_commits_score
+
+=== ablation_no_hard_evidence ===
+features: 136
+Overall grouped out-of-fold metrics
+  ROC-AUC: 0.903
+  PR-AUC:  0.853
+  Brier:   0.130
+
+Fold metrics
+  fold 1: ROC-AUC=0.931 PR-AUC=0.940 Brier=0.127
+  fold 2: ROC-AUC=0.988 PR-AUC=0.981 Brier=0.109
+  fold 3: ROC-AUC=0.781 PR-AUC=0.585 Brier=0.203
+  fold 4: ROC-AUC=0.954 PR-AUC=0.951 Brier=0.082
+  fold 5: ROC-AUC=0.958 PR-AUC=0.930 Brier=0.128
+
+Threshold confusion matrices
+  threshold 0.50: TP=35 FP=6 TN=75 FN=13 precision=0.854 recall=0.729 accuracy=0.853
+  threshold 0.70: TP=20 FP=2 TN=79 FN=28 precision=0.909 recall=0.417 accuracy=0.767
+  threshold 0.85: TP=4 FP=0 TN=81 FN=44 precision=1.000 recall=0.083 accuracy=0.659
+
+Misclassified repos at threshold 0.50
+  false positives
+    p=0.784 human human/PhaserEditor2D__PhaserEditor2D-v3 top=[git.large_commits, git.file_creation_wave, static.repo_structural_repetition, static.repo_docstring_coverage]
+    p=0.725 human human/PacktPublishing__Learn-LLVM-12 top=[git.large_commits, git.file_creation_wave, static.comment_density, git.commit_message_uniformity]
+    p=0.685 human human/NTMC-Community__MatchZoo-py top=[git.large_commits, git.file_creation_wave, static.repo_structural_repetition, static.files_with_ai_like_shape]
+    p=0.592 human human/learning-zone__spring-boot-basics top=[git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop, git.commit_message_uniformity]
+    p=0.557 human human/betcode-org__betfair top=[git.large_commits, static.files_with_ai_like_shape, static.repo_structural_repetition, git.file_creation_wave]
+    p=0.527 human human/Netflix__karyon top=[git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop, static.repo_structural_repetition]
+  false negatives
+    p=0.150 ai_assisted ai_assisted/yianzhou__yianzhou.github.io top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.commit_message_uniformity]
+    p=0.204 ai_generated ai_generated/pluto-atom-4__dotenvx-playground top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.241 ai_assisted ai_assisted/shanraisshan__claude-code-best-practice top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.250 ai_generated ai_generated/anantrp__chat-widget top=[git.commit_message_uniformity, git.short_generic_messages, git.no_commit_typos]
+    p=0.295 ai_generated ai_generated/animeshkundu__youtube-audio top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.333 ai_generated ai_generated/bbrizzee__placeholder-gpt top=[]
+    p=0.384 ai_assisted ai_assisted/cppalliance__buffers top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.bursty_timing]
+    p=0.402 ai_assisted ai_assisted/darraghoriordan__use-miller top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.415 ai_assisted ai_assisted/OneCoach-org__onecoach-ui top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.430 ai_assisted ai_assisted/FotionOrg__Fotion top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.434 ai_assisted ai_assisted/hongyuan007__tapword-translator top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.477 ai_assisted ai_assisted/tsotimus__vite-plugin-csp-guard top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.comment_density]
+    p=0.489 ai_generated ai_generated/ACHolding__claude-anthropic-jailbreak-12.23.25 top=[git.ai_config_files_present, git.large_commits, static.no_supported_files]
+
+Top feature importances
+  0.0796  git_commit_count
+  0.0625  signal.dampener.git.long_lived_history_score
+  0.0614  static_signal_count
+  0.0503  signal.dampener.git.multi_author_history_score
+  0.0387  lines_scanned
+  0.0347  files_indexed
+  0.0315  files_scanned
+  0.0286  signal.dampener.git.merge_commits_present_score
+  0.0266  git_signal_count
+  0.0247  signal.dampener.git.multi_author_history_present
+  0.0237  signal.git.large_commits_score
+  0.0229  signal.dampener.git.multi_author_history_weight
+  0.0168  signal.static.comment_density_score
+  0.0168  signal.git.commit_message_uniformity_score
+  0.0160  signal.dampener.static.readme_code_alignment_weight
+
+=== ablation_no_hard_or_dampeners ===
+features: 97
+Overall grouped out-of-fold metrics
+  ROC-AUC: 0.835
+  PR-AUC:  0.791
+  Brier:   0.166
+
+Fold metrics
+  fold 1: ROC-AUC=0.888 PR-AUC=0.915 Brier=0.170
+  fold 2: ROC-AUC=0.956 PR-AUC=0.939 Brier=0.140
+  fold 3: ROC-AUC=0.750 PR-AUC=0.563 Brier=0.231
+  fold 4: ROC-AUC=0.863 PR-AUC=0.879 Brier=0.134
+  fold 5: ROC-AUC=0.819 PR-AUC=0.812 Brier=0.155
+
+Threshold confusion matrices
+  threshold 0.50: TP=21 FP=3 TN=78 FN=27 precision=0.875 recall=0.438 accuracy=0.767
+  threshold 0.70: TP=6 FP=1 TN=80 FN=42 precision=0.857 recall=0.125 accuracy=0.667
+  threshold 0.85: TP=1 FP=0 TN=81 FN=47 precision=1.000 recall=0.021 accuracy=0.636
+
+Misclassified repos at threshold 0.50
+  false positives
+    p=0.708 human human/NTMC-Community__MatchZoo-py top=[git.large_commits, git.file_creation_wave, static.repo_structural_repetition, static.files_with_ai_like_shape]
+    p=0.634 human human/PhaserEditor2D__PhaserEditor2D-v3 top=[git.large_commits, git.file_creation_wave, static.repo_structural_repetition, static.repo_docstring_coverage]
+    p=0.514 template template/expo-default top=[git.large_commits, git.single_drop_repo, git.file_creation_wave, static.repo_docstring_coverage]
+  false negatives
+    p=0.098 ai_generated ai_generated/pluto-atom-4__dotenvx-playground top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.147 ai_assisted ai_assisted/yianzhou__yianzhou.github.io top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.commit_message_uniformity]
+    p=0.196 ai_generated ai_generated/anantrp__chat-widget top=[git.commit_message_uniformity, git.short_generic_messages, git.no_commit_typos]
+    p=0.198 ai_assisted ai_assisted/utensils__essex top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.198 ai_assisted ai_assisted/shanraisshan__claude-code-best-practice top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.210 ai_assisted ai_assisted/adhi-thirumala__oxeye top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.235 ai_generated ai_generated/bbrizzee__placeholder-gpt top=[]
+    p=0.256 ai_generated ai_generated/tomato-architecture__url-shortener-tomato-architecture top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.298 ai_assisted ai_assisted/twostraws__SwiftAgents top=[git.ai_config_files_present, git.no_commit_typos, static.no_supported_files]
+    p=0.310 ai_generated ai_generated/ACHolding__claude-anthropic-jailbreak-12.23.25 top=[git.ai_config_files_present, git.large_commits, static.no_supported_files]
+    p=0.320 ai_assisted ai_assisted/maciej-trebacz__ff7-ultima top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.327 ai_assisted ai_assisted/maxcountryman__underway top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.bursty_timing]
+    p=0.330 ai_assisted ai_assisted/darraghoriordan__use-miller top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.344 ai_generated ai_generated/zixindh__shdr top=[git.ai_config_files_present, git.large_commits, static.files_with_ai_like_shape, git.no_commit_typos]
+    p=0.346 ai_generated ai_generated/VRSEN__agency-swarm-memory-demo top=[git.ai_config_files_present, git.file_creation_wave, static.repo_docstring_coverage, git.large_commits]
+    p=0.361 ai_generated ai_generated/kierabiad__zoho_aichat top=[git.ai_config_files_present, git.large_commits, git.single_drop_repo]
+    p=0.408 ai_generated ai_generated/ekzhu__WhatGPT top=[git.large_commits, git.single_drop_repo, git.file_creation_wave, git.short_project_span]
+    p=0.418 ai_assisted ai_assisted/kmorrill__op-xy-vibing top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.420 ai_assisted ai_assisted/zHanyo__ultimate-setup top=[git.ai_config_files_present, git.file_creation_wave, git.large_commits, git.diff_shape_broad_file_drop]
+    p=0.436 ai_assisted ai_assisted/tsotimus__vite-plugin-csp-guard top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.comment_density]
+    p=0.443 ai_generated ai_generated/chatchailim__SecureGen top=[git.ai_config_files_present, git.large_commits, git.single_drop_repo, git.file_creation_wave]
+    p=0.451 ai_assisted ai_assisted/OneCoach-org__onecoach-ui top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.461 ai_generated ai_generated/AgiFlow__openskill top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.comment_density]
+    p=0.480 ai_assisted ai_assisted/kenneth-liao__mcp-launchpad top=[git.ai_config_files_present, git.large_commits, static.files_with_ai_like_shape, static.repo_structural_repetition]
+    p=0.490 ai_assisted ai_assisted/FotionOrg__Fotion top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.498 ai_generated ai_generated/RaphaelKhoury__ProgramsGeneratedByChatGPT top=[git.file_creation_wave, git.large_commits, git.commit_message_uniformity, git.single_author_history]
+    p=0.498 ai_generated ai_generated/giobi__brain-seo-template top=[git.ai_config_files_present, git.large_commits, git.single_drop_repo, git.file_creation_wave]
+
+Top feature importances
+  0.1275  git_commit_count
+  0.0970  static_signal_count
+  0.0630  files_indexed
+  0.0586  lines_scanned
+  0.0420  git_signal_count
+  0.0397  files_scanned
+  0.0385  signal.git.commit_message_uniformity_score
+  0.0249  signal.git.diff_shape_broad_file_drop_score
+  0.0235  signal.static.files_with_ai_like_shape_score
+  0.0216  signal.git.large_commits_score
+  0.0191  signal.static.comment_density_score
+  0.0167  signal.git.diff_shape_broad_file_drop_present
+  0.0162  signal.git.single_author_history_score
+  0.0161  signal.git.no_merge_commits_present
+  0.0156  signal.git.no_merge_commits_score
+
+=== risk_signals_only_no_hard_no_dampeners ===
+features: 90
+Overall grouped out-of-fold metrics
+  ROC-AUC: 0.677
+  PR-AUC:  0.605
+  Brier:   0.212
+
+Fold metrics
+  fold 1: ROC-AUC=0.794 PR-AUC=0.794 Brier=0.211
+  fold 2: ROC-AUC=0.688 PR-AUC=0.735 Brier=0.222
+  fold 3: ROC-AUC=0.550 PR-AUC=0.452 Brier=0.252
+  fold 4: ROC-AUC=0.712 PR-AUC=0.681 Brier=0.190
+  fold 5: ROC-AUC=0.792 PR-AUC=0.703 Brier=0.185
+
+Threshold confusion matrices
+  threshold 0.50: TP=9 FP=4 TN=77 FN=39 precision=0.692 recall=0.188 accuracy=0.667
+  threshold 0.70: TP=1 FP=0 TN=81 FN=47 precision=1.000 recall=0.021 accuracy=0.636
+  threshold 0.85: TP=0 FP=0 TN=81 FN=48 precision=0.000 recall=0.000 accuracy=0.628
+
+Misclassified repos at threshold 0.50
+  false positives
+    p=0.667 human human/PhaserEditor2D__PhaserEditor2D-v3 top=[git.large_commits, git.file_creation_wave, static.repo_structural_repetition, static.repo_docstring_coverage]
+    p=0.635 human human/NTMC-Community__MatchZoo-py top=[git.large_commits, git.file_creation_wave, static.repo_structural_repetition, static.files_with_ai_like_shape]
+    p=0.521 human human/JohnCoene__waiter top=[git.large_commits, git.file_creation_wave, static.comment_density, git.diff_shape_broad_file_drop]
+    p=0.503 human human/WeBankBlockchain__WeBASE top=[git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop, git.commit_message_uniformity]
+  false negatives
+    p=0.170 ai_assisted ai_assisted/yianzhou__yianzhou.github.io top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.commit_message_uniformity]
+    p=0.173 ai_generated ai_generated/tomato-architecture__url-shortener-tomato-architecture top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.201 ai_assisted ai_assisted/adhi-thirumala__oxeye top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.204 ai_assisted ai_assisted/utensils__essex top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.219 ai_assisted ai_assisted/twostraws__SwiftAgents top=[git.ai_config_files_present, git.no_commit_typos, static.no_supported_files]
+    p=0.251 ai_generated ai_generated/anantrp__chat-widget top=[git.commit_message_uniformity, git.short_generic_messages, git.no_commit_typos]
+    p=0.252 ai_generated ai_generated/ACHolding__claude-anthropic-jailbreak-12.23.25 top=[git.ai_config_files_present, git.large_commits, static.no_supported_files]
+    p=0.266 ai_generated ai_generated/zixindh__shdr top=[git.ai_config_files_present, git.large_commits, static.files_with_ai_like_shape, git.no_commit_typos]
+    p=0.276 ai_generated ai_generated/bbrizzee__placeholder-gpt top=[]
+    p=0.302 ai_assisted ai_assisted/zHanyo__ultimate-setup top=[git.ai_config_files_present, git.file_creation_wave, git.large_commits, git.diff_shape_broad_file_drop]
+    p=0.303 ai_generated ai_generated/kierabiad__zoho_aichat top=[git.ai_config_files_present, git.large_commits, git.single_drop_repo]
+    p=0.310 ai_generated ai_generated/pluto-atom-4__dotenvx-playground top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.318 ai_assisted ai_assisted/kmorrill__op-xy-vibing top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.320 ai_generated ai_generated/VRSEN__agency-swarm-memory-demo top=[git.ai_config_files_present, git.file_creation_wave, static.repo_docstring_coverage, git.large_commits]
+    p=0.331 ai_generated ai_generated/AgiFlow__openskill top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.comment_density]
+    p=0.334 ai_assisted ai_assisted/FotionOrg__Fotion top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.339 ai_generated ai_generated/ekzhu__WhatGPT top=[git.large_commits, git.single_drop_repo, git.file_creation_wave, git.short_project_span]
+    p=0.342 ai_assisted ai_assisted/deanthecoder__MasterG33k top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.342 ai_assisted ai_assisted/karis-ai__karis top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.353 ai_assisted ai_assisted/maciej-trebacz__ff7-ultima top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.353 ai_generated ai_generated/animeshkundu__youtube-audio top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.368 ai_assisted ai_assisted/tsotimus__vite-plugin-csp-guard top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.comment_density]
+    p=0.376 ai_generated ai_generated/giobi__brain-seo-template top=[git.ai_config_files_present, git.large_commits, git.single_drop_repo, git.file_creation_wave]
+    p=0.378 ai_assisted ai_assisted/Noveum__ai-gateway top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.388 ai_generated ai_generated/fatihbaltaci__chatgpt-clone top=[git.large_commits, git.file_creation_wave, git.commit_message_uniformity, git.diff_shape_broad_file_drop]
+    p=0.394 ai_generated ai_generated/chatchailim__SecureGen top=[git.ai_config_files_present, git.large_commits, git.single_drop_repo, git.file_creation_wave]
+    p=0.400 ai_assisted ai_assisted/kenneth-liao__mcp-launchpad top=[git.ai_config_files_present, git.large_commits, static.files_with_ai_like_shape, static.repo_structural_repetition]
+    p=0.404 ai_assisted ai_assisted/darraghoriordan__use-miller top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.425 ai_generated ai_generated/cxblovedd__etl_neo4j_health_portrait top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.425 ai_assisted ai_assisted/cppalliance__buffers top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.bursty_timing]
+    p=0.428 ai_assisted ai_assisted/hongyuan007__tapword-translator top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.428 ai_assisted ai_assisted/maxcountryman__underway top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.bursty_timing]
+    p=0.431 ai_generated ai_generated/pantheon-upstreams__nextjs15-cache-starter top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_docstring_coverage]
+    p=0.432 ai_assisted ai_assisted/Nutlope__make-comics top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+    p=0.462 ai_generated ai_generated/Jimuelzxc__yourfine top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.463 ai_assisted ai_assisted/shanraisshan__claude-code-best-practice top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.467 ai_generated ai_generated/surajfale__surajfale top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, git.diff_shape_broad_file_drop]
+    p=0.488 ai_assisted ai_assisted/OneCoach-org__onecoach-ui top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.files_with_ai_like_shape]
+    p=0.493 ai_assisted ai_assisted/adamghill__refreshcss top=[git.ai_config_files_present, git.large_commits, git.file_creation_wave, static.repo_structural_repetition]
+
+Top feature importances
+  0.0675  signal.git.commit_message_uniformity_score
+  0.0448  signal.static.files_with_ai_like_shape_score
+  0.0394  signal.git.diff_shape_broad_file_drop_score
+  0.0391  signal.git.large_commits_score
+  0.0328  signal.static.comment_density_score
+  0.0324  signal.git.file_creation_wave_score
+  0.0285  signal.git.no_merge_commits_score
+  0.0281  signal.git.no_merge_commits_present
+  0.0266  signal.static.files_with_ai_like_shape_weight
+  0.0254  signal.static.files_with_ai_like_shape_present
+  0.0251  signal.git.single_author_history_score
+  0.0251  signal.static.repo_docstring_coverage_score
+  0.0248  signal.git.diff_shape_broad_file_drop_weight
+  0.0244  signal.static.repo_structural_repetition_score
+  0.0234  signal.git.single_author_history_present
+
+Saved model: corpus/_prep/gitzero_baseline_ablation_v6.joblib
+Saved profile: ablation_no_hard_evidence

@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gitzero"
+version = "0.1.0"
+description = "A polished Python CLI that scans repos for signals consistent with AI-assisted code."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "GitZero" }
+]
+license = { text = "MIT" }
+dependencies = [
+  "typer>=0.12.0",
+  "rich>=13.7.0",
+  "pydriller>=2.7",
+  "GitPython>=3.1.49,<4",
+  "gitdb>=4.0.12,<5",
+  "smmap>=5.0.3,<6",
+  "radon>=6.0.1"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.5.0"
+]
+parsing = [
+  "tree-sitter>=0.22.0",
+  "tree-sitter-language-pack>=0.7.0"
+]
+ml = [
+  "joblib>=1.3",
+  "numpy>=1.26",
+  "scikit-learn>=1.4"
+]
+
+[project.scripts]
+gitzero = "gitzero.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["corpus"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
