@@ -49,7 +49,8 @@ def build_score_summary(
         finding.id == "git.ai_config_files_present" for finding in all_findings
     )
     if not hard_evidence_present:
-        if _has_starter_template(dampening_findings):
+        compact_project_dump = _has_compact_project_dump(tuple(all_findings))
+        if _has_starter_template(dampening_findings) and not compact_project_dump:
             overall = min(overall, 54.0)
         if _has_educational_context(dampening_findings):
             overall = min(overall, 59.0)
@@ -58,10 +59,8 @@ def build_score_summary(
             overall = min(overall, 59.0)
         elif organic_strength >= 2:
             overall = min(overall, 64.0)
-        if (
-            organic_strength < 2
-            and not _has_starter_template(dampening_findings)
-            and _has_small_ui_dump_shape(tuple(all_findings))
+        if organic_strength < 2 and (
+            compact_project_dump or _has_small_ui_dump_shape(tuple(all_findings))
         ):
             overall = max(overall, 70.0)
     if hard_evidence_present:
@@ -137,6 +136,23 @@ def _has_small_ui_dump_shape(findings: tuple[SignalFinding, ...]) -> bool:
         finding.id == "static.monolithic_ui_file" and finding.score >= 75 for finding in findings
     )
     return has_large_commit and has_monolithic_ui
+
+
+def _has_compact_project_dump(findings: tuple[SignalFinding, ...]) -> bool:
+    has_single_drop = any(
+        finding.id == "git.single_drop_repo" and finding.score >= 70 for finding in findings
+    )
+    has_short_span = any(
+        finding.id == "git.short_project_span" and finding.score >= 70 for finding in findings
+    )
+    has_large_commit = any(
+        finding.id == "git.large_commits" and finding.score >= 90 for finding in findings
+    )
+    has_broad_drop = any(
+        finding.id == "git.diff_shape_broad_file_drop" and finding.score >= 70
+        for finding in findings
+    )
+    return has_single_drop and (has_short_span or (has_large_commit and has_broad_drop))
 
 
 def _risk_findings(findings: tuple[SignalFinding, ...]) -> tuple[SignalFinding, ...]:

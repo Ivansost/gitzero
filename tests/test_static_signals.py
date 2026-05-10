@@ -142,6 +142,18 @@ def test_static_analysis_flags_ai_config_files_and_vibe_code_phrase(tmp_path: Pa
     assert f"README.md contains '{AI_CONFIG_PHRASE}'" in finding.detail
 
 
+def test_static_analysis_flags_explicit_chatgpt_authorship_phrase(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("This widget was built with ChatGPT and GPT-4.\n")
+
+    result = analyze_static_code(tmp_path)
+    findings = {finding.id: finding for finding in result.findings}
+
+    assert "git.ai_config_files_present" in findings
+    assert (
+        "README.md contains 'built with chatgpt'" in findings["git.ai_config_files_present"].detail
+    )
+
+
 def test_static_analysis_flags_absent_debug_artifacts_and_file_size_uniformity(
     tmp_path: Path,
 ) -> None:
