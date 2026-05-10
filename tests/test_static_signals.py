@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from gitzero.static_signals import AI_CONFIG_PHRASE, analyze_static_code
@@ -353,6 +354,62 @@ def test_static_analysis_dampens_known_starter_templates(tmp_path: Path) -> None
     finding_ids = {finding.id for finding in result.findings}
 
     assert "dampener.static.starter_template_detected" in finding_ids
+
+
+def test_static_analysis_skips_known_browser_libraries(tmp_path: Path) -> None:
+    vendor_dir = tmp_path / "resources" / "qb-gangs" / "html" / "js"
+    vendor_dir.mkdir(parents=True)
+    (vendor_dir / "jquery.js").write_text("function jquery() { return true }\n")
+    (vendor_dir / "bootstrap-colorpicker.js").write_text("function picker() { return true }\n")
+    (tmp_path / "app.py").write_text("def run():\n    return 1\n")
+
+    result = analyze_static_code(tmp_path)
+    finding_ids = {finding.id for finding in result.findings}
+
+    assert result.files_scanned == 1
+    assert result.skipped_by_reason["vendor_or_library"] == 2
+    assert "dampener.static.vendor_assets_present" in finding_ids
+
+
+def test_static_analysis_extracts_jupyter_notebook_code_cells(tmp_path: Path) -> None:
+    notebook = {
+        "cells": [
+            {"cell_type": "markdown", "source": ["# Notes"]},
+            {
+                "cell_type": "code",
+                "source": [
+                    "def calculate_user_score(value: int) -> int:\n",
+                    "    return value + 1\n",
+                ],
+            },
+        ]
+    }
+    (tmp_path / "analysis.ipynb").write_text(json.dumps(notebook))
+
+    result = analyze_static_code(tmp_path)
+
+    assert result.files_scanned == 1
+    assert result.files[0].language == "Python"
+    assert result.files[0].path == "analysis.ipynb"
+
+
+def test_static_analysis_dampens_config_heavy_scaffolds(tmp_path: Path) -> None:
+    for name in (
+        "vite.config.js",
+        "tailwind.config.js",
+        "eslint.config.js",
+        "postcss.config.js",
+    ):
+        (tmp_path / name).write_text("export default {}\n")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.tsx").write_text("export const value: number = 1\n")
+
+    result = analyze_static_code(tmp_path)
+    finding_ids = {finding.id for finding in result.findings}
+
+    assert result.files_scanned == 1
+    assert result.skipped_by_reason["config"] == 4
+    assert "dampener.static.config_scaffold_heavy" in finding_ids
 
 
 def test_static_analysis_dampens_angular_nest_and_expo_templates(tmp_path: Path) -> None:

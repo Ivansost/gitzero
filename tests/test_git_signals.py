@@ -45,7 +45,7 @@ def _commit_all(
 def test_git_history_flags_large_file_creation_wave(tmp_path: Path) -> None:
     _init_repo(tmp_path)
 
-    for index in range(12):
+    for index in range(24):
         file_path = tmp_path / f"module_{index}.py"
         file_path.write_text("\n".join(f"value_{line} = {line}" for line in range(70)))
 
@@ -115,9 +115,9 @@ def test_git_history_flags_broad_diff_shape_and_files_not_reworked(tmp_path: Pat
     _init_repo(tmp_path)
     for directory in ("src", "tests", "docs", "config"):
         (tmp_path / directory).mkdir()
-    for index in range(6):
+    for index in range(10):
         (tmp_path / "src" / f"module_{index}.py").write_text(f"value = {index}\n")
-    for index in range(3):
+    for index in range(4):
         (tmp_path / "tests" / f"test_module_{index}.py").write_text(
             "def test_ok():\n    assert True\n"
         )
@@ -138,6 +138,35 @@ def test_git_history_flags_broad_diff_shape_and_files_not_reworked(tmp_path: Pat
     assert "git.diff_shape_broad_file_drop" in finding_ids
     assert "git.diff_shape_complete_stack_drop" in finding_ids
     assert "git.diff_shape_files_rarely_reworked" in finding_ids
+
+
+def test_git_history_ignores_vendored_files_for_diff_shape(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    vendor_dir = tmp_path / "resources" / "demo" / "html" / "js"
+    vendor_dir.mkdir(parents=True)
+    for index, name in enumerate(
+        [
+            "jquery.js",
+            "bootstrap.js",
+            "lodash.js",
+            "vue.js",
+            "crypto.js",
+            "angular.js",
+            "react.development.js",
+            "bootstrap-colorpicker.js",
+        ]
+    ):
+        (vendor_dir / name).write_text(f"function vendor{index}() {{ return {index}; }}\n")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("value = 1\n")
+
+    _commit_all(tmp_path, "Initial vendored assets")
+
+    findings = analyze_git_history(tmp_path)
+    finding_ids = {finding.id for finding in findings}
+
+    assert "git.diff_shape_files_rarely_reworked" not in finding_ids
+    assert "git.diff_shape_broad_file_drop" not in finding_ids
 
 
 def test_git_history_dampens_merge_commits(tmp_path: Path) -> None:

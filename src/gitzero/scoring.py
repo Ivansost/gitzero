@@ -38,7 +38,13 @@ def build_score_summary(
         key=lambda finding: finding.score * finding.weight,
         reverse=True,
     )
-    overall = max(0.0, overall - dampening_score * 0.18)
+    if dampening_score >= 60:
+        dampening_factor = 0.30
+    elif dampening_score >= 40:
+        dampening_factor = 0.22
+    else:
+        dampening_factor = 0.18
+    overall = max(0.0, overall - dampening_score * dampening_factor)
     hard_evidence_present = any(
         finding.id == "git.ai_config_files_present" for finding in all_findings
     )

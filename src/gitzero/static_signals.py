@@ -18,6 +18,7 @@ from pathlib import Path
 from .models import FileFinding, SignalFinding, StaticAnalysisResult
 
 SUPPORTED_EXTENSIONS = {
+    ".ipynb": "Python",
     ".py": "Python",
     ".js": "JavaScript",
     ".jsx": "JavaScript",
@@ -99,6 +100,44 @@ GENERATED_FILE_PATTERNS = (
     "Pipfile.lock",
     "yarn.lock",
 )
+KNOWN_LIBRARY_FILENAMES = {
+    "angular.js",
+    "angular.min.js",
+    "bootstrap.bundle.js",
+    "bootstrap.js",
+    "bootstrap.min.js",
+    "bootstrap-colorpicker.js",
+    "crypto-js.js",
+    "crypto.js",
+    "jquery.js",
+    "jquery.min.js",
+    "lodash.js",
+    "lodash.min.js",
+    "react.development.js",
+    "react.production.min.js",
+    "vue.js",
+    "vue.min.js",
+}
+VENDORED_ASSET_PATH_MARKERS = (
+    "/assets/js/",
+    "/bower_components/",
+    "/html/js/",
+    "/public/js/",
+    "/static/js/",
+    "/vendor/",
+)
+CONFIG_FILE_NAMES = {
+    ".eslintrc.js",
+    "babel.config.js",
+    "eslint.config.js",
+    "jest.config.js",
+    "postcss.config.js",
+    "tailwind.config.js",
+    "tailwind.config.ts",
+    "vite.config.js",
+    "vite.config.ts",
+    "webpack.config.js",
+}
 
 NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 JS_DECL_RE = re.compile(
@@ -269,6 +308,12 @@ def analyze_static_code(
         if max_files is not None and len(files) >= max_files:
             skipped_by_reason["max_files"] += 1
             continue
+        if _looks_config_scaffold_file(relative):
+            skipped_by_reason["config"] += 1
+            continue
+        if _looks_vendor_or_library(relative, path):
+            skipped_by_reason["vendor_or_library"] += 1
+            continue
         if _looks_generated(relative, path):
             skipped_by_reason["generated"] += 1
             continue
@@ -282,9 +327,18 @@ def analyze_static_code(
             continue
 
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
+            raw_text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             skipped_by_reason["unreadable"] += 1
+            continue
+
+        text = (
+            _extract_notebook_python(path, raw_text)
+            if path.suffix.lower() == ".ipynb"
+            else raw_text
+        )
+        if text is None:
+            skipped_by_reason["notebook_without_code"] += 1
             continue
 
         if _looks_minified(text):
@@ -295,7 +349,7 @@ def analyze_static_code(
         if finding is not None:
             files.append(finding)
 
-    aggregate_findings = _aggregate_findings(files, repo_path)
+    aggregate_findings = _aggregate_findings(files, repo_path, skipped_by_reason)
     return StaticAnalysisResult(
         files=tuple(files),
         findings=tuple(aggregate_findings),
@@ -367,6 +421,20 @@ def _looks_generated(relative: Path, path: Path) -> bool:
     return any(marker in lower_name or marker in lower_path for marker in generated_markers)
 
 
+def _looks_config_scaffold_file(relative: Path) -> bool:
+    return relative.name.lower() in CONFIG_FILE_NAMES
+
+
+def _looks_vendor_or_library(relative: Path, path: Path) -> bool:
+    lower_name = path.name.lower()
+    lower_path = f"/{relative.as_posix().lower()}"
+    if lower_name in KNOWN_LIBRARY_FILENAMES:
+        return True
+    if path.suffix.lower() not in {".js", ".jsx", ".ts", ".tsx"}:
+        return False
+    return any(marker in lower_path for marker in VENDORED_ASSET_PATH_MARKERS)
+
+
 def _looks_minified(text: str) -> bool:
     lines = text.splitlines()
     if not lines:
@@ -374,6 +442,33 @@ def _looks_minified(text: str) -> bool:
     longest = max(len(line) for line in lines)
     average = sum(len(line) for line in lines) / len(lines)
     return longest > 1500 or (len(lines) <= 5 and average > 500)
+
+
+def _extract_notebook_python(path: Path, text: str) -> str | None:
+    try:
+        notebook = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+    cells = notebook.get("cells", [])
+    if not isinstance(cells, list):
+        return None
+
+    code_cells: list[str] = []
+    for cell in cells:
+        if not isinstance(cell, dict) or cell.get("cell_type") != "code":
+            continue
+        source = cell.get("source", [])
+        if isinstance(source, list):
+            source_text = "".join(str(part) for part in source)
+        else:
+            source_text = str(source)
+        if source_text.strip():
+            code_cells.append(source_text)
+
+    if not code_cells:
+        return None
+    return f"\n\n# extracted from {path.name}\n\n".join(code_cells)
 
 
 def _analyze_file(path: str, language: str, text: str) -> FileFinding | None:
@@ -1544,10 +1639,100 @@ def _educational_material_findings(repo_path: Path) -> list[SignalFinding]:
     ]
 
 
-def _aggregate_findings(files: list[FileFinding], repo_path: Path) -> list[SignalFinding]:
+def _scaffold_context_findings(
+    files: list[FileFinding],
+    skipped_by_reason: Counter[str],
+) -> list[SignalFinding]:
+    findings: list[SignalFinding] = []
+    config_count = skipped_by_reason.get("config", 0)
+    vendor_count = skipped_by_reason.get("vendor_or_library", 0)
+    considered = len(files) + config_count + vendor_count
+    if considered <= 0:
+        return findings
+
+    config_ratio = config_count / considered
+    if config_count >= 2 and config_ratio > 0.5:
+        findings.append(
+            SignalFinding(
+                id="dampener.static.config_scaffold_heavy",
+                title="Scan is dominated by config scaffolding",
+                category="dampener",
+                score=min(70.0, 35 + config_ratio * 45 + config_count * 2),
+                weight=0.5,
+                detail=(
+                    f"{config_count} of {considered} inspected source-like files were framework "
+                    "config files and were excluded from static scoring."
+                ),
+                evidence_count=config_count,
+                risk_impact="lowers",
+                confidence_impact="contextual",
+            )
+        )
+
+    vendor_ratio = vendor_count / considered
+    if vendor_count >= 2 and vendor_ratio >= 0.25:
+        findings.append(
+            SignalFinding(
+                id="dampener.static.vendor_assets_present",
+                title="Vendored browser/library assets were excluded",
+                category="dampener",
+                score=min(75.0, 35 + vendor_ratio * 55 + vendor_count),
+                weight=0.45,
+                detail=(
+                    f"{vendor_count} of {considered} source-like files looked like known "
+                    "libraries or bundled browser assets."
+                ),
+                evidence_count=vendor_count,
+                risk_impact="lowers",
+                confidence_impact="contextual",
+            )
+        )
+    return findings
+
+
+def _resource_framework_findings(repo_path: Path) -> list[SignalFinding]:
+    resources_dir = repo_path / "resources"
+    if not resources_dir.is_dir():
+        return []
+
+    try:
+        resource_children = [path for path in resources_dir.iterdir() if path.is_dir()]
+    except OSError:
+        return []
+
+    html_js_count = sum(1 for path in resource_children if (path / "html" / "js").is_dir())
+    if len(resource_children) < 5 or html_js_count < 3:
+        return []
+
+    return [
+        SignalFinding(
+            id="dampener.static.resource_framework_layout",
+            title="Resource-module framework layout detected",
+            category="dampener",
+            score=min(75.0, 35 + len(resource_children) * 2 + html_js_count * 4),
+            weight=0.45,
+            detail=(
+                f"Top-level resources/ contains {len(resource_children)} modules, including "
+                f"{html_js_count} with html/js assets. This often reflects bundled framework "
+                "resources rather than newly authored source."
+            ),
+            evidence_count=html_js_count,
+            risk_impact="lowers",
+            confidence_impact="contextual",
+        )
+    ]
+
+
+def _aggregate_findings(
+    files: list[FileFinding],
+    repo_path: Path,
+    skipped_by_reason: Counter[str],
+) -> list[SignalFinding]:
     findings: list[SignalFinding] = _ai_config_findings(repo_path)
     findings.extend(_starter_template_findings(repo_path))
     findings.extend(_educational_material_findings(repo_path))
+    findings.extend(_scaffold_context_findings(files, skipped_by_reason))
+    findings.extend(_resource_framework_findings(repo_path))
     if not files:
         findings.append(
             SignalFinding(
@@ -1588,7 +1773,7 @@ def _aggregate_findings(files: list[FileFinding], repo_path: Path) -> list[Signa
     repeated_structure_files = [file for file in files if file.structure_repetition_score >= 0.4]
     test_files = [file for file in files if _is_test_path_or_text(file.path, "")]
 
-    if medium_files:
+    if len(medium_files) >= 3 or (medium_files and average_score >= 35):
         score = min(100.0, average_score + len(high_files) * 8 + len(medium_files) * 2)
         findings.append(
             SignalFinding(
@@ -1843,11 +2028,20 @@ def _repository_code_text(repo_path: Path, *, max_chars: int = 2_000_000) -> str
     for path, relative in _iter_source_paths(repo_path, ()):
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             continue
+        if _looks_config_scaffold_file(relative) or _looks_vendor_or_library(relative, path):
+            continue
         if _looks_generated(relative, path):
             continue
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
+            raw_text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
+            continue
+        text = (
+            _extract_notebook_python(path, raw_text)
+            if path.suffix.lower() == ".ipynb"
+            else raw_text
+        )
+        if text is None:
             continue
         remaining = max_chars - current_size
         if remaining <= 0:

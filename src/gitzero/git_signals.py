@@ -59,6 +59,32 @@ COMMON_COMMIT_TYPOS = {
     "teh",
     "udpate",
 }
+KNOWN_LIBRARY_FILENAMES = {
+    "angular.js",
+    "angular.min.js",
+    "bootstrap.bundle.js",
+    "bootstrap.js",
+    "bootstrap.min.js",
+    "bootstrap-colorpicker.js",
+    "crypto-js.js",
+    "crypto.js",
+    "jquery.js",
+    "jquery.min.js",
+    "lodash.js",
+    "lodash.min.js",
+    "react.development.js",
+    "react.production.min.js",
+    "vue.js",
+    "vue.min.js",
+}
+VENDORED_PATH_MARKERS = (
+    "/assets/js/",
+    "/bower_components/",
+    "/html/js/",
+    "/public/js/",
+    "/static/js/",
+    "/vendor/",
+)
 
 
 def analyze_git_history(repo_path: Path) -> tuple[SignalFinding, ...]:
@@ -262,16 +288,32 @@ def _large_commit_findings(metrics: tuple[CommitMetric, ...]) -> list[SignalFind
 
     if max_change >= 500 or avg_change >= 180:
         score = min(100.0, max(max_change / 15, avg_change / 4, large_ratio * 100))
+        weight = 1.4
+        detail_suffix = ""
+        first_commit = metrics[0]
+        subsequent_changes = [metric.lines_changed for metric in metrics[1:]]
+        subsequent_avg = statistics.mean(subsequent_changes) if subsequent_changes else 0.0
+        if first_commit.lines_changed == max_change:
+            if len(metrics) <= 3:
+                score = min(100.0, score * 1.2)
+                detail_suffix = " The largest change is an initial one-or-two-drop import."
+            elif len(metrics) > 5 and subsequent_avg < 150:
+                score = min(score, 70.0)
+                weight = 0.95
+                detail_suffix = (
+                    " The largest change is the initial import, followed by much smaller "
+                    "commits; this is weaker than repeated large drops."
+                )
         findings.append(
             SignalFinding(
                 id="git.large_commits",
                 title="Large commit bursts",
                 category="git",
                 score=score,
-                weight=1.4,
+                weight=weight,
                 detail=(
                     f"Max commit changed {max_change:,} lines; average commit changed "
-                    f"{avg_change:,.0f} lines."
+                    f"{avg_change:,.0f} lines.{detail_suffix}"
                 ),
             )
         )
@@ -281,7 +323,9 @@ def _large_commit_findings(metrics: tuple[CommitMetric, ...]) -> list[SignalFind
 def _file_creation_findings(metrics: tuple[CommitMetric, ...]) -> list[SignalFinding]:
     max_created = max(metric.files_created for metric in metrics)
     avg_created = statistics.mean(metric.files_created for metric in metrics)
-    if max_created < 8:
+    total_files_created = sum(metric.files_created for metric in metrics)
+    threshold = max(20, int(total_files_created * 0.15))
+    if max_created < threshold:
         return []
 
     score = min(100.0, max_created * 5 + avg_created * 3)
@@ -294,7 +338,7 @@ def _file_creation_findings(metrics: tuple[CommitMetric, ...]) -> list[SignalFin
             weight=1.2,
             detail=(
                 f"One commit created {max_created} files; average created per commit "
-                f"is {avg_created:.1f}."
+                f"is {avg_created:.1f}; threshold for this repo was {threshold}."
             ),
         )
     ]
@@ -569,50 +613,61 @@ def _commit_hour_findings(metrics: tuple[CommitMetric, ...]) -> list[SignalFindi
 
 def _diff_shape_findings(metrics: tuple[CommitMetric, ...]) -> list[SignalFinding]:
     findings: list[SignalFinding] = []
-    broad_commits: list[tuple[CommitMetric, set[str]]] = []
-    complete_drop_commits: list[CommitMetric] = []
+    broad_commits: list[tuple[CommitMetric, set[str], int]] = []
+    complete_drop_commits: list[tuple[CommitMetric, int]] = []
 
     for metric in metrics:
-        categories = _path_categories(metric.files_created_paths or metric.files_touched)
-        if metric.files_created >= 8 and len(categories) >= 3:
-            broad_commits.append((metric, categories))
-        if metric.files_created >= 6 and {"source", "tests", "docs"} <= categories:
-            complete_drop_commits.append(metric)
+        created_paths = tuple(
+            path for path in metric.files_created_paths if not _looks_like_vendor_path(path)
+        )
+        category_paths = created_paths or tuple(
+            path for path in metric.files_touched if not _looks_like_vendor_path(path)
+        )
+        source_created_count = len(created_paths)
+        categories = _path_categories(category_paths)
+        if source_created_count >= 15 and len(categories) >= 3:
+            broad_commits.append((metric, categories, source_created_count))
+        if source_created_count >= 6 and {"source", "tests", "docs"} <= categories:
+            complete_drop_commits.append((metric, source_created_count))
 
     if broad_commits:
-        metric, categories = max(broad_commits, key=lambda item: item[0].files_created)
+        metric, categories, source_created_count = max(broad_commits, key=lambda item: item[2])
         findings.append(
             SignalFinding(
                 id="git.diff_shape_broad_file_drop",
                 title="One commit added broad unrelated areas",
                 category="git",
-                score=min(85.0, 35 + metric.files_created * 3 + len(categories) * 4),
+                score=min(85.0, 35 + source_created_count * 3 + len(categories) * 4),
                 weight=0.8,
                 detail=(
-                    f"Commit {metric.sha[:8]} created {metric.files_created} files across "
+                    f"Commit {metric.sha[:8]} created {source_created_count} non-vendored "
+                    "files across "
                     f"{', '.join(sorted(categories))}."
                 ),
             )
         )
 
     if complete_drop_commits:
-        metric = max(complete_drop_commits, key=lambda item: item.files_created)
+        metric, source_created_count = max(complete_drop_commits, key=lambda item: item[1])
         findings.append(
             SignalFinding(
                 id="git.diff_shape_complete_stack_drop",
                 title="Code, tests, and docs landed together",
                 category="git",
-                score=min(80.0, 32 + metric.files_created * 3),
+                score=min(80.0, 32 + source_created_count * 3),
                 weight=0.55,
                 detail=(
                     f"Commit {metric.sha[:8]} created source, test, and documentation files "
-                    f"in the same {metric.files_created}-file change."
+                    f"in the same {source_created_count}-file change."
                 ),
             )
         )
 
     created_paths = [
-        path for metric in metrics for path in metric.files_created_paths if _source_like_path(path)
+        path
+        for metric in metrics
+        for path in metric.files_created_paths
+        if _source_like_path(path) and not _looks_like_vendor_path(path)
     ]
     if len(created_paths) >= 8:
         touch_counts = Counter(path for metric in metrics for path in metric.files_touched)
@@ -756,3 +811,10 @@ def _path_categories(paths: tuple[str, ...]) -> set[str]:
 
 def _source_like_path(path: str) -> bool:
     return Path(path.lower()).suffix in {".py", ".js", ".jsx", ".ts", ".tsx"}
+
+
+def _looks_like_vendor_path(path: str) -> bool:
+    lower = f"/{path.lower().strip('/')}"
+    if Path(lower).name in KNOWN_LIBRARY_FILENAMES:
+        return True
+    return any(marker in lower for marker in VENDORED_PATH_MARKERS)
