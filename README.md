@@ -2,9 +2,7 @@
 
 A CLI tool that scans any GitHub repository for signals consistent with AI-generated or AI-assisted code. Analyzes 25+ behavioral and static signals across git history and source files, outputs an explainable risk report, and includes a full ML training pipeline.
 
-> GitZero surfaces evidence — it does not prove authorship.
-
-→ **[Full project writeup and demo](https://your-website.com/gitzero)**
+→ **[Full project writeup and demo](https://ivansostaric.com)**
 
 ---
 
