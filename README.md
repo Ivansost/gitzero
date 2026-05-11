@@ -50,4 +50,4 @@ gitzero batch ./corpus --recursive --label-from-parent --format jsonl -o out.jso
 
 ---
 
-**Stack:** Python · Typer · Rich · PyDriller · radon · scikit-learn
+**Stack:** Python · Typer · Rich · PyDriller · radon
