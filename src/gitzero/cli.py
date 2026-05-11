@@ -83,7 +83,7 @@ def scan(
     ] = False,
     ml_model: Annotated[
         Path | None,
-        typer.Option("--ml-model", help="Optional GitZero joblib model artifact."),
+        typer.Option("--ml-model", help="Optional experimental GitZero joblib model artifact."),
     ] = None,
 ) -> None:
     """Scan a repository and print a GitZero report."""

@@ -86,7 +86,7 @@ def render_help(console) -> None:
     )
     flags.add_row(
         "--ml-model <file>",
-        "Load a trained GitZero joblib model artifact and print ML probability.",
+        "Load an experimental GitZero joblib model artifact and print ML probability.",
     )
     flags.add_row(
         "--verbose, -v",
@@ -125,7 +125,7 @@ def render_help(console) -> None:
     legend.add_row(
         "[yellow]Medium[/]",
         "40-69",
-        "Several signals are elevated; review the top findings.",
+        "Several signals are elevated; review the top findings. This is not an AI claim.",
     )
     legend.add_row(
         "[red]High[/]",
@@ -361,6 +361,7 @@ def _ml_prediction_panel(prediction: MlPrediction):
     text = (
         f"[bold {color}]ML probability: {prediction.probability:.2f} "
         f"({prediction.band})[/]\n"
+        "[dim]Experimental:[/] use as a calibration aid alongside the heuristic score.\n"
         f"[dim]Model:[/] {prediction.model_path}\n"
         f"[dim]Profile:[/] {prediction.profile} "
         f"({prediction.feature_count} features)"

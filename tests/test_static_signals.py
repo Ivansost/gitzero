@@ -154,6 +154,32 @@ def test_static_analysis_flags_explicit_chatgpt_authorship_phrase(tmp_path: Path
     )
 
 
+def test_static_analysis_flags_help_from_chatgpt_phrase(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("This tool was built with help from ChatGPT.\n")
+
+    result = analyze_static_code(tmp_path)
+    findings = {finding.id: finding for finding in result.findings}
+
+    assert "git.ai_config_files_present" in findings
+    assert (
+        "README.md contains 'built with help from chatgpt'"
+        in findings["git.ai_config_files_present"].detail
+    )
+
+
+def test_static_analysis_flags_wrestling_with_chatgpt_phrase(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("I spent a weekend wrestling with ChatGPT.\n")
+
+    result = analyze_static_code(tmp_path)
+    findings = {finding.id: finding for finding in result.findings}
+
+    assert "git.ai_config_files_present" in findings
+    assert (
+        "README.md contains 'wrestling with chatgpt'"
+        in findings["git.ai_config_files_present"].detail
+    )
+
+
 def test_static_analysis_flags_absent_debug_artifacts_and_file_size_uniformity(
     tmp_path: Path,
 ) -> None:
