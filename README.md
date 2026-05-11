@@ -8,8 +8,7 @@ A CLI tool that scans any GitHub repository for signals consistent with AI-gener
 
 ---
 
-<!-- Screenshot: gitzero scan output -->
-<!-- ![GitZero scan](docs/images/scan-summary.png) -->
+![GitZero scan output](photos/mainreport.png)
 
 ---
 
