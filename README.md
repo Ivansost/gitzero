@@ -26,10 +26,10 @@ A CLI tool that scans any GitHub repository for signals consistent with AI-gener
 
 - 25+ detection signals with per-signal weights and confidence scoring
 - Jupyter notebook support — extracts and analyzes `.ipynb` code cells
-- ML pipeline: Random Forest with grouped cross-validation on 129 labeled repos — **0.903 ROC-AUC** on ablation evaluation
+- ML pipeline: Random Forest with grouped cross-validation on 193 labeled repos — **0.968 ROC-AUC** without hard-evidence features ([evaluation summary](corpus/_prep/corpus_summary_v7.md))
 - Batch export to JSONL/CSV with ML-ready feature columns for every signal
 - `--ml-model` flag for experimental probability alongside the heuristic score
-- 35+ tests, ruff clean
+- 50+ tests, ruff clean
 
 ---
 

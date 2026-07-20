@@ -436,6 +436,41 @@ def test_static_analysis_dampens_known_starter_templates(tmp_path: Path) -> None
     assert "dampener.static.starter_template_detected" in finding_ids
 
 
+def test_static_analysis_recognizes_pristine_generator_readme(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        '{"scripts":{"dev":"vite"},"dependencies":{"vue":"latest"}}'
+    )
+    (tmp_path / "README.md").write_text(
+        "This template should help get you started developing with Vue 3 in Vite.\n"
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.ts").write_text("export const value = 1\n")
+
+    result = analyze_static_code(tmp_path)
+    finding_ids = {finding.id for finding in result.findings}
+
+    assert "dampener.static.pristine_starter_template" in finding_ids
+
+
+def test_static_analysis_ignores_stock_astro_agent_instructions(tmp_path: Path) -> None:
+    stock_instructions = """
+## Development
+When starting the dev server, use background mode:
+astro dev --background
+Full documentation: https://docs.astro.build
+"""
+    (tmp_path / "AGENTS.md").write_text(stock_instructions)
+    (tmp_path / "CLAUDE.md").write_text(stock_instructions)
+    (tmp_path / "package.json").write_text('{"dependencies":{"astro":"latest"}}')
+    (tmp_path / "README.md").write_text("# Astro Starter Kit: Minimal\n")
+
+    result = analyze_static_code(tmp_path)
+    finding_ids = {finding.id for finding in result.findings}
+
+    assert "git.ai_config_files_present" not in finding_ids
+    assert "dampener.static.pristine_starter_template" in finding_ids
+
+
 def test_static_analysis_skips_known_browser_libraries(tmp_path: Path) -> None:
     vendor_dir = tmp_path / "resources" / "qb-gangs" / "html" / "js"
     vendor_dir.mkdir(parents=True)

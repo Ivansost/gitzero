@@ -52,7 +52,10 @@ def build_score_summary(
         compact_project_dump = _has_compact_project_dump(tuple(all_findings))
         small_ui_dump = _has_small_ui_dump_shape(tuple(all_findings))
         strong_family_count = _strong_risk_family_count(tuple(all_findings))
-        if _has_starter_template(dampening_findings) and not compact_project_dump:
+        pristine_template = _has_pristine_starter_template(dampening_findings)
+        if pristine_template or (
+            _has_starter_template(dampening_findings) and not compact_project_dump
+        ):
             overall = min(overall, 39.0)
         if _has_educational_context(dampening_findings):
             overall = min(overall, 39.0)
@@ -67,7 +70,7 @@ def build_score_summary(
             compact_project_dump or small_ui_dump
         ):
             overall = 64.0
-        if organic_strength < 2 and (
+        if not pristine_template and organic_strength < 2 and (
             compact_project_dump or small_ui_dump
         ):
             overall = max(overall, 70.0)
@@ -120,6 +123,12 @@ def _is_dampener(finding: SignalFinding) -> bool:
 
 def _has_starter_template(findings: tuple[SignalFinding, ...]) -> bool:
     return any(finding.id == "dampener.static.starter_template_detected" for finding in findings)
+
+
+def _has_pristine_starter_template(findings: tuple[SignalFinding, ...]) -> bool:
+    return any(
+        finding.id == "dampener.static.pristine_starter_template" for finding in findings
+    )
 
 
 def _has_educational_context(findings: tuple[SignalFinding, ...]) -> bool:

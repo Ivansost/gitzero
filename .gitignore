@@ -13,5 +13,5 @@ build/
 corpus/*
 !corpus/_prep/
 corpus/_prep/*
-!corpus/_prep/baseline_report_v6.txt
-!corpus/_prep/external_scan_check_v6.md
+!corpus/_prep/baseline_report_v7_random_forest.txt
+!corpus/_prep/corpus_summary_v7.md

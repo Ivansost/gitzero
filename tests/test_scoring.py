@@ -223,6 +223,56 @@ def test_starter_template_does_not_cap_compact_project_dump() -> None:
     assert summary.risk_band == "High"
 
 
+def test_pristine_starter_caps_compact_project_dump() -> None:
+    git_findings = (
+        SignalFinding(
+            id="git.large_commits",
+            title="Large commits",
+            category="git",
+            score=100,
+            weight=1.4,
+            detail="large",
+        ),
+        SignalFinding(
+            id="git.single_drop_repo",
+            title="Single drop",
+            category="git",
+            score=95,
+            weight=1.3,
+            detail="drop",
+        ),
+        SignalFinding(
+            id="git.short_project_span",
+            title="Short span",
+            category="git",
+            score=90,
+            weight=1.1,
+            detail="short",
+        ),
+    )
+    static = StaticAnalysisResult(
+        files=(),
+        findings=(
+            SignalFinding(
+                id="dampener.static.pristine_starter_template",
+                title="Pristine starter",
+                category="dampener",
+                score=75,
+                weight=1.2,
+                detail="unchanged generator README",
+            ),
+        ),
+        files_scanned=5,
+        files_skipped=0,
+        total_lines=500,
+    )
+
+    summary = build_score_summary(git_findings, static, git_history_enabled=True)
+
+    assert summary.overall_score <= 39
+    assert summary.risk_band == "Low"
+
+
 def test_organic_history_dampeners_cap_large_initial_import_without_hard_evidence() -> None:
     git_findings = (
         SignalFinding(

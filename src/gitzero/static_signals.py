@@ -307,6 +307,9 @@ STARTER_TEMPLATE_DEPENDENCIES = {
     "@nestjs/cli": "NestJS starter",
     "@nestjs/core": "NestJS starter",
     "@vitejs/plugin-react": "Vite React starter",
+    "@docusaurus/core": "Docusaurus starter",
+    "@sveltejs/kit": "SvelteKit starter",
+    "astro": "Astro starter",
     "create-react-app": "Create React App starter",
     "django": "Django starter",
     "expo": "Expo starter",
@@ -316,6 +319,25 @@ STARTER_TEMPLATE_DEPENDENCIES = {
     "react-native": "React Native starter",
     "react-scripts": "Create React App starter",
 }
+PRISTINE_STARTER_README_MARKERS = {
+    "# astro starter kit:": "Astro generated README",
+    "everything you need to build a svelte project, powered by": "SvelteKit generated README",
+    "this is a [next.js](https://nextjs.org) project bootstrapped with": (
+        "Next.js generated README"
+    ),
+    "this is an [expo](https://expo.dev) project created with": "Expo generated README",
+    "this project was bootstrapped with [create react app]": "Create React App README",
+    "this project was generated using [angular cli]": "Angular generated README",
+    "this template should help get you started developing with vue 3": (
+        "Vue generated README"
+    ),
+    "this website is built using [docusaurus]": "Docusaurus generated README",
+}
+ASTRO_GENERATED_AGENT_MARKERS = (
+    "when starting the dev server, use background mode",
+    "full documentation: https://docs.astro.build",
+    "astro dev --background",
+)
 EDUCATIONAL_REPO_NAME_TERMS = {
     "book": "book/example repo",
     "course": "course repo",
@@ -1601,7 +1623,7 @@ def _ai_config_findings(repo_path: Path) -> list[SignalFinding]:
             relative = _relative_child(root_relative, filename)
             if _is_excluded(relative, ()):
                 continue
-            if _is_ai_config_path(relative):
+            if _is_ai_config_path(relative) and not _is_known_starter_ai_config(path):
                 matches.append(relative.as_posix())
             try:
                 file_size = path.stat().st_size
@@ -1636,6 +1658,16 @@ def _is_ai_config_path(relative: Path) -> bool:
         relative.name.lower() in AI_CONFIG_NAMES_NORMALIZED
         or path_text in AI_CONFIG_PATHS_NORMALIZED
     )
+
+
+def _is_known_starter_ai_config(path: Path) -> bool:
+    if path.name.lower() not in {"agents.md", "claude.md"}:
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore").lower()
+    except OSError:
+        return False
+    return all(marker in text for marker in ASTRO_GENERATED_AGENT_MARKERS)
 
 
 def _is_ai_phrase_scan_path(relative: Path) -> bool:
@@ -1678,6 +1710,7 @@ def _parse_python_quietly(text: str) -> ast.AST:
 
 def _starter_template_findings(repo_path: Path) -> list[SignalFinding]:
     hits: set[str] = set()
+    pristine_hits: set[str] = set()
     for relative_name, label in STARTER_TEMPLATE_FILES.items():
         if (repo_path / relative_name).exists():
             hits.add(label)
@@ -1710,11 +1743,29 @@ def _starter_template_findings(repo_path: Path) -> list[SignalFinding]:
     if (repo_path / "artisan").exists() and (repo_path / "composer.json").exists():
         hits.add("Laravel starter")
 
+    readme_path = next(
+        (
+            path
+            for path in sorted(repo_path.glob("README*"))
+            if path.is_file() and path.stat().st_size <= 1_000_000
+        ),
+        None,
+    )
+    if readme_path is not None:
+        try:
+            readme = readme_path.read_text(encoding="utf-8", errors="ignore").lower()
+        except OSError:
+            readme = ""
+        for marker, label in PRISTINE_STARTER_README_MARKERS.items():
+            if marker in readme:
+                pristine_hits.add(label)
+                hits.add(label)
+
     if not hits:
         return []
 
     labels = sorted(hits)
-    return [
+    findings = [
         SignalFinding(
             id="dampener.static.starter_template_detected",
             title="Known starter or framework template detected",
@@ -1730,6 +1781,25 @@ def _starter_template_findings(repo_path: Path) -> list[SignalFinding]:
             confidence_impact="contextual",
         )
     ]
+    if pristine_hits:
+        pristine_labels = sorted(pristine_hits)
+        findings.append(
+            SignalFinding(
+                id="dampener.static.pristine_starter_template",
+                title="Generated starter README is still unchanged",
+                category="dampener",
+                score=75.0,
+                weight=1.2,
+                detail=(
+                    "Detected unchanged generator documentation: "
+                    f"{', '.join(pristine_labels)}."
+                ),
+                evidence_count=len(pristine_labels),
+                risk_impact="lowers",
+                confidence_impact="contextual",
+            )
+        )
+    return findings
 
 
 def _educational_material_findings(repo_path: Path) -> list[SignalFinding]:
