@@ -10,6 +10,30 @@ A CLI tool that scans any GitHub repository for signals consistent with AI-gener
 
 ---
 
+## How It Works
+
+GitZero uses a hybrid detection pipeline: deterministic heuristics produce the primary explainable score, while an optional calibrated Random Forest provides a separate learned probability.
+
+![GitZero architecture and machine-learning pipeline](photos/gitzero-architecture.png)
+
+1. **Load and filter the repository.** GitZero accepts a local folder or public GitHub URL, builds a source-file index, and excludes dependencies, generated code, vendored libraries, caches, training artifacts, and framework scaffolding.
+2. **Analyze two evidence families.** Git history analysis measures repository behavior over time, while static analysis examines patterns in the current source code.
+3. **Normalize and score the evidence.** Findings use a common signal format containing a score, supporting details, affected files, and confidence context. The heuristic combines independent signal families and applies false-positive dampeners.
+4. **Produce an explainable report.** The CLI shows the risk score, Low/Medium/High band, confidence, dampening, top signals, highest-signal files, and optional ML probability.
+
+### Why Use an ML Model?
+
+The Random Forest is an **optional second opinion**, not a replacement for the explainable heuristic. Its purpose is to learn nonlinear interactions between weak signals that fixed weights may miss.
+
+- It trains on raw signal and scan-metadata features, not GitZero's final `risk_score`.
+- Hard-evidence columns are excluded so the model must learn subtler repository patterns.
+- Its probability is reported separately and never overwrites the heuristic result.
+- A disagreement between the two methods indicates uncertainty and gives the reviewer a reason to inspect the evidence.
+
+The current calibrated Random Forest was evaluated with owner-grouped 5-fold cross-validation on 193 labeled repositories and reached **0.968 ROC-AUC** on that corpus. This is a project benchmark, not a claim of universal authorship-detection accuracy.
+
+---
+
 ## What It Detects
 
 **Git signals** — large commit bursts, file creation waves, single-drop histories, no-merge linear histories, formulaic commit messages, author uniformity, tight commit time clustering.
