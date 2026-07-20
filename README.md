@@ -14,7 +14,7 @@ A CLI tool that scans any GitHub repository for signals consistent with AI-gener
 
 GitZero uses a hybrid detection pipeline: deterministic heuristics produce the primary explainable score, while an optional calibrated Random Forest provides a separate learned probability.
 
-![GitZero architecture and machine-learning pipeline](photos/gitzero-architecture.png)
+![GitZero architecture and machine-learning pipeline](photos/gitzero-architecture-dark.png)
 
 1. **Load and filter the repository.** GitZero accepts a local folder or public GitHub URL, builds a source-file index, and excludes dependencies, generated code, vendored libraries, caches, training artifacts, and framework scaffolding.
 2. **Analyze two evidence families.** Git history analysis measures repository behavior over time, while static analysis examines patterns in the current source code.
