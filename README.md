@@ -6,7 +6,7 @@ A CLI tool that scans any GitHub repository for signals consistent with AI-gener
 
 ---
 
-![GitZero scan output](photos/mainreport.png)
+![GitZero scan output](https://raw.githubusercontent.com/Ivansost/gitzero/main/photos/mainreport.png)
 
 ---
 
@@ -14,7 +14,7 @@ A CLI tool that scans any GitHub repository for signals consistent with AI-gener
 
 GitZero uses a hybrid detection pipeline: deterministic heuristics produce the primary explainable score, while an optional calibrated Random Forest provides a separate learned probability.
 
-![GitZero architecture and machine-learning pipeline](photos/gitzero-architecture-dark.png)
+![GitZero architecture and machine-learning pipeline](https://raw.githubusercontent.com/Ivansost/gitzero/main/photos/gitzero-architecture-dark.png)
 
 1. **Load and filter the repository.** GitZero accepts a local folder or public GitHub URL, builds a source-file index, and excludes dependencies, generated code, vendored libraries, caches, training artifacts, and framework scaffolding.
 2. **Analyze two evidence families.** Git history analysis measures repository behavior over time, while static analysis examines patterns in the current source code.
@@ -50,7 +50,7 @@ The current calibrated Random Forest was evaluated with owner-grouped 5-fold cro
 
 - 25+ detection signals with per-signal weights and confidence scoring
 - Jupyter notebook support — extracts and analyzes `.ipynb` code cells
-- ML pipeline: Random Forest with grouped cross-validation on 193 labeled repos — **0.968 ROC-AUC** without hard-evidence features ([evaluation summary](corpus/_prep/corpus_summary_v7.md))
+- ML pipeline: Random Forest with grouped cross-validation on 193 labeled repos — **0.968 ROC-AUC** without hard-evidence features ([evaluation summary](https://github.com/Ivansost/gitzero/blob/main/corpus/_prep/corpus_summary_v7.md))
 - Batch export to JSONL/CSV with ML-ready feature columns for every signal
 - `--ml-model` flag for experimental probability alongside the heuristic score
 - 50+ tests, ruff clean
