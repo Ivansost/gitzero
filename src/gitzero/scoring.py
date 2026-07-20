@@ -50,17 +50,25 @@ def build_score_summary(
     )
     if not hard_evidence_present:
         compact_project_dump = _has_compact_project_dump(tuple(all_findings))
+        small_ui_dump = _has_small_ui_dump_shape(tuple(all_findings))
+        strong_family_count = _strong_risk_family_count(tuple(all_findings))
         if _has_starter_template(dampening_findings) and not compact_project_dump:
-            overall = min(overall, 54.0)
+            overall = min(overall, 39.0)
         if _has_educational_context(dampening_findings):
-            overall = min(overall, 59.0)
+            overall = min(overall, 39.0)
         organic_strength = _organic_history_strength(dampening_findings)
-        if organic_strength >= 3:
-            overall = min(overall, 59.0)
-        elif organic_strength >= 2:
-            overall = min(overall, 64.0)
+        if organic_strength >= 3 and not (compact_project_dump or small_ui_dump):
+            overall = min(overall, 39.0)
+        elif organic_strength >= 2 and not (compact_project_dump or small_ui_dump):
+            overall = min(overall, 39.0 if dampening_score >= 60 else 44.0)
+        elif dampening_score >= 60 and not (compact_project_dump or small_ui_dump):
+            overall = min(overall, 39.0 if strong_family_count < 3 else 54.0)
+        if overall >= 70.0 and strong_family_count < 3 and not (
+            compact_project_dump or small_ui_dump
+        ):
+            overall = 64.0
         if organic_strength < 2 and (
-            compact_project_dump or _has_small_ui_dump_shape(tuple(all_findings))
+            compact_project_dump or small_ui_dump
         ):
             overall = max(overall, 70.0)
     if hard_evidence_present:
@@ -153,6 +161,58 @@ def _has_compact_project_dump(findings: tuple[SignalFinding, ...]) -> bool:
         for finding in findings
     )
     return has_single_drop and (has_short_span or (has_large_commit and has_broad_drop))
+
+
+def _strong_risk_family_count(findings: tuple[SignalFinding, ...]) -> int:
+    families: set[str] = set()
+    for finding in findings:
+        if finding.score < 55:
+            continue
+        family = _risk_family(finding.id)
+        if family:
+            families.add(family)
+    return len(families)
+
+
+def _risk_family(signal_id: str) -> str | None:
+    if signal_id in {
+        "git.large_commits",
+        "git.file_creation_wave",
+        "git.single_drop_repo",
+        "git.short_project_span",
+        "git.diff_shape_broad_file_drop",
+        "git.diff_shape_complete_stack_drop",
+        "git.diff_shape_files_rarely_reworked",
+        "git.project_skeleton_symmetry",
+    }:
+        return "git_dump_shape"
+    if signal_id in {
+        "git.bursty_timing",
+        "git.commit_hour_clustering",
+        "git.commit_time_distribution",
+        "git.two_hour_history_window",
+    }:
+        return "git_timing"
+    if signal_id in {
+        "git.commit_message_uniformity",
+        "git.short_generic_messages",
+        "git.no_commit_typos",
+    }:
+        return "git_messages"
+    if signal_id in {
+        "static.files_with_ai_like_shape",
+        "static.repo_structural_repetition",
+        "static.monolithic_ui_file",
+        "static.file_size_uniformity",
+        "static.debug_artifact_absence",
+    }:
+        return "static_shape"
+    if signal_id.startswith("static.") and signal_id not in {
+        "static.no_supported_files",
+        "static.top_file",
+    }:
+        return "static_style"
+    return None
 
 
 def _risk_findings(findings: tuple[SignalFinding, ...]) -> tuple[SignalFinding, ...]:

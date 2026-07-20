@@ -180,6 +180,48 @@ def test_static_analysis_flags_wrestling_with_chatgpt_phrase(tmp_path: Path) -> 
     )
 
 
+def test_static_analysis_ignores_corpus_prep_ai_phrases(tmp_path: Path) -> None:
+    prep_dir = tmp_path / "corpus" / "_prep"
+    prep_dir.mkdir(parents=True)
+    (prep_dir / "scan_report.jsonl").write_text(
+        '{"detail": "README.md contains built with ChatGPT and vibe coded"}\n'
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("def run():\n    return 'ok'\n")
+
+    result = analyze_static_code(tmp_path)
+    findings = {finding.id: finding for finding in result.findings}
+
+    assert "git.ai_config_files_present" not in findings
+    assert all(not file.path.startswith("corpus/") for file in result.files)
+
+
+def test_static_analysis_ignores_non_doc_ai_phrase_files(tmp_path: Path) -> None:
+    (tmp_path / "scan_report.jsonl").write_text(
+        '{"detail": "This was built with ChatGPT"}\n'
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("def run():\n    return 'ok'\n")
+
+    result = analyze_static_code(tmp_path)
+    findings = {finding.id: finding for finding in result.findings}
+
+    assert "git.ai_config_files_present" not in findings
+
+
+def test_static_analysis_ignores_markdown_code_span_ai_phrase_examples(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text(
+        "This project detects phrases like `built with ChatGPT` in README files.\n"
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("def run():\n    return 'ok'\n")
+
+    result = analyze_static_code(tmp_path)
+    findings = {finding.id: finding for finding in result.findings}
+
+    assert "git.ai_config_files_present" not in findings
+
+
 def test_static_analysis_flags_absent_debug_artifacts_and_file_size_uniformity(
     tmp_path: Path,
 ) -> None:

@@ -161,8 +161,8 @@ def test_starter_template_dampener_caps_high_risk_without_hard_evidence() -> Non
 
     summary = build_score_summary(git_findings, static, git_history_enabled=True)
 
-    assert summary.overall_score <= 54
-    assert summary.risk_band == "Medium"
+    assert summary.overall_score <= 39
+    assert summary.risk_band == "Low"
 
 
 def test_starter_template_does_not_cap_compact_project_dump() -> None:
@@ -285,7 +285,40 @@ def test_organic_history_dampeners_cap_large_initial_import_without_hard_evidenc
 
     summary = build_score_summary(git_findings, static, git_history_enabled=True)
 
-    assert summary.overall_score <= 59
+    assert summary.overall_score <= 39
+    assert summary.risk_band == "Low"
+
+
+def test_multiple_signal_families_are_required_for_high_without_hard_evidence() -> None:
+    git_findings = (
+        SignalFinding(
+            id="git.large_commits",
+            title="Large commits",
+            category="git",
+            score=100,
+            weight=2,
+            detail="large",
+        ),
+        SignalFinding(
+            id="git.file_creation_wave",
+            title="Creation wave",
+            category="git",
+            score=100,
+            weight=2,
+            detail="wave",
+        ),
+    )
+    static = StaticAnalysisResult(
+        files=(),
+        findings=(),
+        files_scanned=20,
+        files_skipped=0,
+        total_lines=5000,
+    )
+
+    summary = build_score_summary(git_findings, static, git_history_enabled=True)
+
+    assert summary.overall_score < 70
     assert summary.risk_band == "Medium"
 
 

@@ -23,6 +23,7 @@ METADATA_FEATURES = (
 )
 HARD_EVIDENCE_TOKEN = "git.ai_config_files_present"
 THRESHOLDS = (0.5, 0.7, 0.85)
+ALGORITHMS = ("random_forest", "logistic_regression", "hist_gradient_boosting")
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class Dataset:
 @dataclass(frozen=True)
 class EvaluationResult:
     name: str
+    algorithm: str
     feature_columns: list[str]
     probabilities: list[float]
     fold_metrics: list[dict[str, float]]
@@ -70,6 +72,9 @@ def main() -> None:
     add("")
     add("Positive Hard Evidence Details")
     add_hard_evidence_details(dataset.rows, add)
+    add("")
+    add("Heuristic Score Separation")
+    add_heuristic_separation_report(dataset.rows, add)
 
     full_features = select_feature_columns(dataset.rows, include_hard_evidence=True)
     ablation_features = select_feature_columns(dataset.rows, include_hard_evidence=False)
@@ -89,6 +94,7 @@ def main() -> None:
         evaluate_model(
             "full_model",
             dataset,
+            algorithm=args.algorithm,
             feature_columns=full_features,
             folds=args.folds,
             random_state=args.random_state,
@@ -96,6 +102,7 @@ def main() -> None:
         evaluate_model(
             "ablation_no_hard_evidence",
             dataset,
+            algorithm=args.algorithm,
             feature_columns=ablation_features,
             folds=args.folds,
             random_state=args.random_state,
@@ -103,6 +110,7 @@ def main() -> None:
         evaluate_model(
             "ablation_no_hard_or_dampeners",
             dataset,
+            algorithm=args.algorithm,
             feature_columns=raw_signal_features,
             folds=args.folds,
             random_state=args.random_state,
@@ -110,6 +118,7 @@ def main() -> None:
         evaluate_model(
             "risk_signals_only_no_hard_no_dampeners",
             dataset,
+            algorithm=args.algorithm,
             feature_columns=risk_signal_only_features,
             folds=args.folds,
             random_state=args.random_state,
@@ -119,6 +128,7 @@ def main() -> None:
     for result in results:
         add("")
         add(f"=== {result.name} ===")
+        add(f"algorithm: {result.algorithm}")
         add(f"features: {len(result.feature_columns)}")
         add_model_report(result, dataset, add)
 
@@ -160,6 +170,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--folds", type=int, default=5, help="Grouped CV fold count.")
     parser.add_argument("--random-state", type=int, default=42, help="Model/CV random seed.")
+    parser.add_argument(
+        "--algorithm",
+        choices=ALGORITHMS,
+        default="random_forest",
+        help="Estimator to evaluate and save.",
+    )
     parser.add_argument(
         "--save-model",
         type=Path,
@@ -254,6 +270,47 @@ def hard_evidence_detail(row: dict[str, Any]) -> str:
     return "present"
 
 
+def add_heuristic_separation_report(rows: list[dict[str, Any]], add: Any) -> None:
+    positives = [row for row in rows if row["label"] in POSITIVE_LABELS]
+    negatives = [row for row in rows if row["label"] in NEGATIVE_LABELS]
+    add_score_bucket_line(
+        "positive",
+        [numeric_value(row.get("risk_score")) for row in positives],
+        add,
+        low_threshold=40.0,
+        high_threshold=70.0,
+    )
+    add_score_bucket_line(
+        "negative",
+        [numeric_value(row.get("risk_score")) for row in negatives],
+        add,
+        low_threshold=40.0,
+        high_threshold=70.0,
+    )
+
+
+def add_score_bucket_line(
+    name: str,
+    scores: list[float],
+    add: Any,
+    *,
+    low_threshold: float,
+    high_threshold: float,
+) -> None:
+    if not scores:
+        add(f"  {name}: no rows")
+        return
+    low = sum(score < low_threshold for score in scores)
+    medium = sum(low_threshold <= score < high_threshold for score in scores)
+    high = sum(score >= high_threshold for score in scores)
+    total = len(scores)
+    add(
+        f"  {name}: low={low}/{total} ({low / total:.0%}) "
+        f"medium={medium}/{total} ({medium / total:.0%}) "
+        f"high={high}/{total} ({high / total:.0%})"
+    )
+
+
 def select_feature_columns(
     rows: list[dict[str, Any]],
     *,
@@ -278,13 +335,13 @@ def evaluate_model(
     name: str,
     dataset: Dataset,
     *,
+    algorithm: str,
     feature_columns: list[str],
     folds: int,
     random_state: int,
 ) -> EvaluationResult:
     try:
         from sklearn.calibration import CalibratedClassifierCV
-        from sklearn.ensemble import RandomForestClassifier
         from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
     except ModuleNotFoundError as exc:
         raise SystemExit(
@@ -313,12 +370,7 @@ def evaluate_model(
         train_y = [y[index] for index in train_idx]
         test_x = [x[index] for index in test_idx]
         test_y = [y[index] for index in test_idx]
-        classifier = RandomForestClassifier(
-            n_estimators=300,
-            min_samples_leaf=2,
-            class_weight="balanced",
-            random_state=random_state + fold_index,
-        )
+        classifier = classifier_for_algorithm(algorithm, random_state + fold_index)
         model = CalibratedClassifierCV(classifier, cv=3, method="sigmoid")
         model.fit(train_x, train_y)
         fold_probabilities = [float(pair[1]) for pair in model.predict_proba(test_x)]
@@ -326,33 +378,76 @@ def evaluate_model(
             probabilities[index] = probability
         fold_metrics.append(metric_summary(test_y, fold_probabilities))
 
-    final_model = RandomForestClassifier(
-        n_estimators=500,
-        min_samples_leaf=2,
-        class_weight="balanced",
-        random_state=random_state,
-    )
+    final_model = classifier_for_algorithm(algorithm, random_state)
     final_model.fit(x, y)
-    importances = list(final_model.feature_importances_)
-    top_positive = top_features(feature_columns, importances, reverse=True)
-    saved_classifier = RandomForestClassifier(
-        n_estimators=500,
-        min_samples_leaf=2,
-        class_weight="balanced",
-        random_state=random_state + 10_000,
-    )
+    top_positive, top_negative = model_feature_rankings(final_model, feature_columns)
+    saved_classifier = classifier_for_algorithm(algorithm, random_state + 10_000)
     saved_model = CalibratedClassifierCV(saved_classifier, cv=3, method="sigmoid")
     saved_model.fit(x, y)
 
     return EvaluationResult(
         name=name,
+        algorithm=algorithm,
         feature_columns=feature_columns,
         probabilities=probabilities,
         fold_metrics=fold_metrics,
         top_positive_features=top_positive,
-        top_negative_features=[],
+        top_negative_features=top_negative,
         model=saved_model,
     )
+
+
+def classifier_for_algorithm(algorithm: str, random_state: int) -> Any:
+    if algorithm == "random_forest":
+        from sklearn.ensemble import RandomForestClassifier
+
+        return RandomForestClassifier(
+            n_estimators=500,
+            min_samples_leaf=2,
+            class_weight="balanced",
+            random_state=random_state,
+        )
+    if algorithm == "logistic_regression":
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        return make_pipeline(
+            StandardScaler(),
+            LogisticRegression(
+                class_weight="balanced",
+                max_iter=5000,
+                random_state=random_state,
+            ),
+        )
+    if algorithm == "hist_gradient_boosting":
+        from sklearn.ensemble import HistGradientBoostingClassifier
+
+        return HistGradientBoostingClassifier(
+            learning_rate=0.06,
+            max_iter=250,
+            l2_regularization=0.05,
+            random_state=random_state,
+        )
+    raise SystemExit(f"Unsupported algorithm: {algorithm}")
+
+
+def model_feature_rankings(
+    model: Any,
+    feature_columns: list[str],
+) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+    if hasattr(model, "feature_importances_"):
+        values = [float(value) for value in model.feature_importances_]
+        return top_features(feature_columns, values, reverse=True), []
+
+    classifier = getattr(model, "named_steps", {}).get("logisticregression")
+    if classifier is not None and hasattr(classifier, "coef_"):
+        coefficients = [float(value) for value in classifier.coef_[0]]
+        top_positive = top_features(feature_columns, coefficients, reverse=True)
+        top_negative = top_features(feature_columns, coefficients, reverse=False)
+        return top_positive, top_negative
+
+    return [], []
 
 
 def result_by_name(results: list[EvaluationResult], name: str) -> EvaluationResult:
@@ -384,6 +479,7 @@ def save_model_artifact(
         "schema_version": 1,
         "tool": "gitzero",
         "profile": result.name,
+        "algorithm": result.algorithm,
         "model_type": type(result.model).__name__,
         "model": result.model,
         "feature_columns": result.feature_columns,
@@ -464,12 +560,54 @@ def add_model_report(result: EvaluationResult, dataset: Dataset, add: Any) -> No
     for threshold in THRESHOLDS:
         add_threshold_report(dataset.labels, result.probabilities, threshold, add)
     add("")
+    add("Probability separation")
+    add_probability_separation_report(dataset, result.probabilities, add)
+    add("")
     add("Misclassified repos at threshold 0.50")
     add_misclassification_report(dataset, result.probabilities, 0.5, add)
     add("")
     add("Top feature importances")
-    for column, value in result.top_positive_features[:15]:
-        add(f"  {value:.4f}  {column}")
+    if result.top_positive_features:
+        for column, value in result.top_positive_features[:15]:
+            add(f"  {value:.4f}  {column}")
+    else:
+        add("  not available for this estimator")
+    if result.top_negative_features:
+        add("")
+        add("Top negative feature coefficients")
+        for column, value in result.top_negative_features[:10]:
+            add(f"  {value:.4f}  {column}")
+
+
+def add_probability_separation_report(
+    dataset: Dataset,
+    probabilities: list[float],
+    add: Any,
+) -> None:
+    positive_probs = [
+        probability
+        for probability, label in zip(probabilities, dataset.labels, strict=True)
+        if label == 1
+    ]
+    negative_probs = [
+        probability
+        for probability, label in zip(probabilities, dataset.labels, strict=True)
+        if label == 0
+    ]
+    add_score_bucket_line(
+        "positive",
+        positive_probs,
+        add,
+        low_threshold=0.4,
+        high_threshold=0.7,
+    )
+    add_score_bucket_line(
+        "negative",
+        negative_probs,
+        add,
+        low_threshold=0.4,
+        high_threshold=0.7,
+    )
 
 
 def add_threshold_report(
@@ -514,11 +652,11 @@ def add_misclassification_report(
 
     if false_positives:
         add("  false positives")
-        for probability, row in sorted(false_positives, reverse=True):
+        for probability, row in sorted(false_positives, key=lambda item: item[0], reverse=True):
             add_error_row(probability, row, add)
     if false_negatives:
         add("  false negatives")
-        for probability, row in sorted(false_negatives):
+        for probability, row in sorted(false_negatives, key=lambda item: item[0]):
             add_error_row(probability, row, add)
 
 

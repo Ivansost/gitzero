@@ -42,11 +42,14 @@ DEFAULT_EXCLUDES = {
     ".turbo",
     ".venv",
     ".vscode",
+    "_prep",
     "__pycache__",
     "build",
+    "corpus",
     "coverage",
     "dist",
     "env",
+    "fixtures",
     "htmlcov",
     "migrations",
     "node_modules",
@@ -145,6 +148,7 @@ GENERATED_FILE_PATTERNS = (
     "*.snap",
     "*_pb2.py",
     "*_pb2_grpc.py",
+    "*.d.ts",
     "package-lock.json",
     "pnpm-lock.yaml",
     "poetry.lock",
@@ -177,6 +181,20 @@ VENDORED_ASSET_PATH_MARKERS = (
     "/static/js/",
     "/vendor/",
 )
+MACHINE_GENERATED_PATH_MARKERS = (
+    "/__snapshots__/",
+    "/benchmark-output/",
+    "/benchmarks/output/",
+    "/fixture/",
+    "/fixtures/",
+    "/generated/",
+    "/i18n/",
+    "/locale/",
+    "/locales/",
+    "/snapshots/",
+    "/testdata/",
+    "/translations/",
+)
 CONFIG_FILE_NAMES = {
     ".eslintrc.js",
     "babel.config.js",
@@ -189,6 +207,20 @@ CONFIG_FILE_NAMES = {
     "vite.config.ts",
     "webpack.config.js",
 }
+AI_PHRASE_DOC_SUFFIXES = {".md", ".mdx", ".rst", ".txt"}
+AI_PHRASE_ROOT_DOC_NAMES = {
+    "about",
+    "agents",
+    "claude",
+    "codex",
+    "contributing",
+    "gemini",
+    "llms",
+    "notes",
+    "overview",
+    "readme",
+}
+AI_PHRASE_DOC_DIRS = {".github", "docs", "documentation"}
 
 NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 JS_DECL_RE = re.compile(
@@ -365,6 +397,9 @@ def analyze_static_code(
         if _looks_vendor_or_library(relative, path):
             skipped_by_reason["vendor_or_library"] += 1
             continue
+        if _looks_machine_generated_context(relative, path):
+            skipped_by_reason["machine_generated"] += 1
+            continue
         if _looks_generated(relative, path):
             skipped_by_reason["generated"] += 1
             continue
@@ -484,6 +519,17 @@ def _looks_vendor_or_library(relative: Path, path: Path) -> bool:
     if path.suffix.lower() not in {".js", ".jsx", ".ts", ".tsx"}:
         return False
     return any(marker in lower_path for marker in VENDORED_ASSET_PATH_MARKERS)
+
+
+def _looks_machine_generated_context(relative: Path, path: Path) -> bool:
+    lower_path = f"/{relative.as_posix().lower()}"
+    if any(marker in lower_path for marker in MACHINE_GENERATED_PATH_MARKERS):
+        return True
+    if path.suffix.lower() in {".snap"}:
+        return True
+    if re.search(r"/[a-z]{2}(?:[_-][a-z]{2})?\.(?:js|ts|jsx|tsx)$", lower_path):
+        return any(marker in lower_path for marker in ("/locale/", "/locales/", "/i18n/"))
+    return False
 
 
 def _looks_minified(text: str) -> bool:
@@ -1561,7 +1607,7 @@ def _ai_config_findings(repo_path: Path) -> list[SignalFinding]:
                 file_size = path.stat().st_size
             except OSError:
                 continue
-            if file_size <= 1_000_000:
+            if file_size <= 1_000_000 and _is_ai_phrase_scan_path(relative):
                 for phrase in _file_ai_phrase_matches(path):
                     phrase_matches.append(f"{relative.as_posix()} contains '{phrase}'")
 
@@ -1592,15 +1638,36 @@ def _is_ai_config_path(relative: Path) -> bool:
     )
 
 
+def _is_ai_phrase_scan_path(relative: Path) -> bool:
+    if _is_ai_config_path(relative):
+        return True
+    suffix = relative.suffix.lower()
+    if suffix not in AI_PHRASE_DOC_SUFFIXES:
+        return False
+
+    parts = [part.lower() for part in relative.parts]
+    stem = relative.stem.lower()
+    if len(parts) == 1:
+        return stem in AI_PHRASE_ROOT_DOC_NAMES or stem.startswith("readme")
+    if parts[0] in AI_PHRASE_DOC_DIRS:
+        return stem in AI_PHRASE_ROOT_DOC_NAMES or stem.startswith("readme")
+    return False
+
+
 def _file_ai_phrase_matches(path: Path) -> list[str]:
     try:
-        text = path.read_text(encoding="utf-8", errors="ignore").lower()
+        text = _strip_markdown_code(path.read_text(encoding="utf-8", errors="ignore")).lower()
     except OSError:
         return []
     matches = sorted(phrase for phrase in AI_AUTHORSHIP_PHRASES if phrase in text)
     if AI_CONFIG_PHRASE in text and AI_CONFIG_PHRASE not in matches:
         matches.append(AI_CONFIG_PHRASE)
     return matches
+
+
+def _strip_markdown_code(text: str) -> str:
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    return re.sub(r"`[^`]*`", " ", text)
 
 
 def _parse_python_quietly(text: str) -> ast.AST:
