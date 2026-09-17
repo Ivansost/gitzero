@@ -3,10 +3,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+
+from export_features import export_features
+
+from gitzero.ml import load_model_artifact, predict_from_scan
+from gitzero.repo_loader import load_repository
+from gitzero.report import report_to_json
+from gitzero.scanner import scan_repository
 
 LIVE_REPOS = (
     ("hard_evidence_ai", "https://github.com/jrkoop/vcf2csv"),
@@ -31,12 +37,11 @@ def main() -> None:
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    cli = args.cli
     report_lines = ["# GitZero Accuracy Audit", ""]
     scan_rows: list[dict[str, Any]] = []
 
-    self_default = run_scan(cli, ".", args.ml_model, args)
-    self_excluded = run_scan(cli, ".", args.ml_model, args, extra_args=["--exclude", "corpus"])
+    self_default = run_scan(".", args.ml_model, args)
+    self_excluded = run_scan(".", args.ml_model, args, excludes=("corpus",))
     write_json(output_dir / "self_scan_default.json", self_default)
     write_json(output_dir / "self_scan_exclude_corpus.json", self_excluded)
     report_lines.extend(
@@ -52,22 +57,11 @@ def main() -> None:
     if not args.skip_corpus:
         corpus_path = output_dir / "corpus_features.jsonl"
         if args.corpus_features is None:
-            run_command(
-                [
-                    cli,
-                    "batch",
-                    "corpus",
-                    "--recursive",
-                    "--label-from-parent",
-                    "--format",
-                    "jsonl",
-                    "--output",
-                    str(corpus_path),
-                    "--max-files",
-                    str(args.max_files),
-                    "--max-file-size",
-                    str(args.max_file_size),
-                ]
+            export_features(
+                Path("corpus"),
+                corpus_path,
+                max_files=args.max_files,
+                max_file_size=args.max_file_size,
             )
         else:
             corpus_path = args.corpus_features
@@ -82,7 +76,7 @@ def main() -> None:
         live_path = output_dir / "live_scan.jsonl"
         with live_path.open("w", encoding="utf-8") as handle:
             for expected, url in LIVE_REPOS:
-                row = run_scan(cli, url, args.ml_model, args)
+                row = run_scan(url, args.ml_model, args)
                 row["expected"] = expected
                 row["url"] = url
                 handle.write(json.dumps(compact_scan_row(row), sort_keys=True) + "\n")
@@ -105,7 +99,6 @@ def main() -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run repeatable GitZero accuracy diagnostics.")
     parser.add_argument("--output-dir", type=Path, default=Path("/tmp/gitzero_accuracy_audit"))
-    parser.add_argument("--cli", default=".venv/bin/gitzero")
     parser.add_argument("--ml-model", type=Path, default=None)
     parser.add_argument("--max-files", type=int, default=400)
     parser.add_argument("--max-file-size", type=int, default=400)
@@ -116,38 +109,41 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_scan(
-    cli: str,
     target: str,
     ml_model: Path | None,
     args: argparse.Namespace,
     *,
-    extra_args: list[str] | None = None,
+    excludes: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    command = [
-        cli,
-        "scan",
-        target,
-        "--json",
-        "--max-files",
-        str(args.max_files),
-        "--max-file-size",
-        str(args.max_file_size),
-    ]
-    if ml_model is not None:
-        command.extend(["--ml-model", str(ml_model)])
-    if extra_args:
-        command.extend(extra_args)
-    output = run_command(command)
-    return json.loads(output)
-
-
-def run_command(command: list[str]) -> str:
-    result = subprocess.run(command, text=True, capture_output=True, check=False)
-    if result.returncode != 0:
-        raise SystemExit(
-            f"Command failed ({result.returncode}): {' '.join(command)}\n{result.stderr}"
+    with load_repository(target) as repository:
+        git_findings, static_result, score = scan_repository(
+            repository.path,
+            excludes=excludes,
+            max_files=args.max_files,
+            max_file_size=args.max_file_size,
         )
-    return result.stdout
+        prediction = None
+        if ml_model is not None:
+            model_path = ml_model.expanduser().resolve()
+            prediction = predict_from_scan(
+                artifact=load_model_artifact(model_path),
+                artifact_path=model_path,
+                repo_path=repository.path,
+                score=score,
+                static_result=static_result,
+                git_findings=git_findings,
+                git_history_enabled=True,
+            )
+        return json.loads(
+            report_to_json(
+                repository=repository,
+                score=score,
+                static_result=static_result,
+                git_findings=git_findings,
+                git_history_enabled=True,
+                ml_prediction=prediction,
+            )
+        )
 
 
 def write_json(path: Path, data: dict[str, Any]) -> None:

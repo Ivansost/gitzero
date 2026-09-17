@@ -39,77 +39,9 @@ def render_help(console) -> None:
     )
     commands.add_row(
         "gitzero help",
-        "Show this command guide, flag reference, score legend, and examples.",
-    )
-    commands.add_row(
-        "gitzero batch <repos-folder>",
-        "Scan many local repositories and export JSONL or CSV rows for evaluation.",
-    )
-    commands.add_row(
-        "gitzero fixtures <output-dir>",
-        "Create a labeled local fixture corpus for calibration and training exports.",
-    )
-    commands.add_row(
-        "gitzero --help",
-        "Show Typer's built-in command reference.",
+        "Show commands, score legend, and examples.",
     )
     console.print(commands)
-
-    flags = Table(
-        title="Scan Flags",
-        box=box.ROUNDED,
-        show_lines=True,
-        border_style="magenta",
-        expand=True,
-    )
-    flags.add_column("Flag", style="bold magenta", ratio=1)
-    flags.add_column("Meaning", ratio=2)
-    flags.add_row(
-        "--no-git-history",
-        "Skip commit-history analysis and score only the current source files.",
-    )
-    flags.add_row(
-        "--exclude, -x <pattern>",
-        "Skip a directory name or glob pattern. Can be used more than once.",
-    )
-    flags.add_row(
-        "--max-file-size <kb>",
-        "Skip supported source files larger than this size. Default: 400 KB.",
-    )
-    flags.add_row(
-        "--max-files <count>",
-        "Cap supported source files scanned for large repositories. Default: 2000.",
-    )
-    flags.add_row(
-        "--json",
-        "Print machine-readable JSON instead of the Rich terminal report.",
-    )
-    flags.add_row(
-        "--ml-model <file>",
-        "Load an experimental GitZero joblib model artifact and print ML probability.",
-    )
-    flags.add_row(
-        "--verbose, -v",
-        "Show every per-file static signal that contributed to the score.",
-    )
-    console.print(flags)
-
-    batch_flags = Table(
-        title="Batch / Fixture Flags",
-        box=box.ROUNDED,
-        show_lines=True,
-        border_style="magenta",
-        expand=True,
-    )
-    batch_flags.add_column("Flag", style="bold magenta", ratio=1)
-    batch_flags.add_column("Meaning", ratio=2)
-    batch_flags.add_row("--format jsonl|csv", "Choose batch export format. Default: jsonl.")
-    batch_flags.add_row("--output, -o <file>", "Write batch rows to a file instead of stdout.")
-    batch_flags.add_row("--labels <file>", "Load repo labels from CSV, JSON, or JSONL.")
-    batch_flags.add_row("--recursive", "Find repositories inside nested label folders.")
-    batch_flags.add_row("--label-from-parent", "Use each repo's immediate parent folder as label.")
-    batch_flags.add_row("--force", "Replace an existing non-empty fixture output directory.")
-    console.print(batch_flags)
 
     legend = Table(
         title="Score Legend",
@@ -164,14 +96,7 @@ def render_help(console) -> None:
     examples = (
         "[bold]Examples[/]\n"
         "  [cyan]gitzero scan .[/]\n"
-        "  [cyan]gitzero scan ./my-repo --no-git-history[/]\n"
-        "  [cyan]gitzero scan https://github.com/user/project -x node_modules -x dist[/]\n"
-        "  [cyan]gitzero scan . --json[/]\n\n"
-        "  [cyan]gitzero fixtures ./fixtures/gitzero-corpus[/]\n"
-        "  [cyan]gitzero batch ./fixtures/gitzero-corpus --labels "
-        "./fixtures/gitzero-corpus/labels.csv --format jsonl[/]\n\n"
-        "  [cyan]gitzero batch ./corpus --recursive --label-from-parent "
-        "--format csv -o corpus.csv[/]\n\n"
+        "  [cyan]gitzero scan https://github.com/user/project[/]\n\n"
         "[dim]GitZero reports signals consistent with AI-assisted code. "
         "It does not prove who or what wrote a repository.[/]"
     )
@@ -186,7 +111,6 @@ def render_report(
     static_result: StaticAnalysisResult,
     git_findings: tuple[SignalFinding, ...],
     git_history_enabled: bool,
-    verbose: bool = False,
     ml_prediction: MlPrediction | None = None,
 ) -> None:
     from rich import box
@@ -275,9 +199,6 @@ def render_report(
         file_table.add_row("-", "-", "0", "No supported source files were scanned.")
     console.print(file_table)
 
-    if verbose:
-        console.print(_verbose_file_findings(static_result))
-
     source_lines = _source_lines(repository)
     footnote = (
         "GitZero reports signals consistent with AI-assisted code. "
@@ -292,27 +213,6 @@ def render_report(
             border_style="dim",
         )
     )
-
-
-def _verbose_file_findings(static_result: StaticAnalysisResult):
-    from rich import box
-    from rich.table import Table
-
-    table = Table(title="Verbose File Findings", box=box.HORIZONTALS, show_lines=True, expand=True)
-    table.add_column("File", ratio=2)
-    table.add_column("Signal", ratio=1)
-    table.add_column("Score", justify="right", width=8)
-    table.add_column("Details", ratio=2)
-
-    rows = 0
-    for file in sorted(static_result.files, key=lambda item: item.score, reverse=True):
-        findings = [finding for finding in file.verbose_findings if finding.score > 0]
-        for finding in findings:
-            rows += 1
-            table.add_row(file.path, finding.title, f"{finding.score:.0f}", finding.detail)
-    if rows == 0:
-        table.add_row("-", "No per-file signals", "0", "No verbose findings were triggered.")
-    return table
 
 
 def _dampening_findings_table(score: ScoreSummary):
